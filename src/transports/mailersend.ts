@@ -12,9 +12,11 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses } from "../core/address.js";
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch } from "../core/http.js";
 import type { MailOptions, SendResult, Transport, VerifyResult } from "../core/types.js";
 import { resolveAttachments } from "./resolve-attachments.js";
 
@@ -100,7 +102,7 @@ export class MailerSendTransport implements Transport {
         : {}),
     };
 
-    const response = await fetch("https://api.mailersend.com/v1/email", {
+    const response = await providerFetch("https://api.mailersend.com/v1/email", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiToken}`,
@@ -139,7 +141,7 @@ export class MailerSendTransport implements Transport {
   /** Verifies the MailerSend API token by listing domains. */
   async verify(): Promise<VerifyResult> {
     try {
-      const response = await fetch("https://api.mailersend.com/v1/domains", {
+      const response = await providerFetch("https://api.mailersend.com/v1/domains", {
         headers: {
           Authorization: `Bearer ${this.apiToken}`,
         },

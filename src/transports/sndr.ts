@@ -24,8 +24,10 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses, toMIMEHeader } from "../core/address.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch } from "../core/http.js";
 import { resolveIdempotencyKey } from "../core/idempotency-key.js";
 import type { MailOptions, SendResult, Transport, VerifyResult } from "../core/types.js";
 
@@ -126,7 +128,7 @@ export class SndrTransport implements Transport {
 
     const idempotencyKey = resolveIdempotencyKey(options);
 
-    const response = await fetch(`${this.baseUrl}/v1/send`, {
+    const response = await providerFetch(`${this.baseUrl}/v1/send`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -172,7 +174,7 @@ export class SndrTransport implements Transport {
   /** Verifies the API key by listing domains (`GET /v1/domains`). */
   async verify(): Promise<VerifyResult> {
     try {
-      const response = await fetch(`${this.baseUrl}/v1/domains`, {
+      const response = await providerFetch(`${this.baseUrl}/v1/domains`, {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           Accept: "application/json",

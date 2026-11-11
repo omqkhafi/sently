@@ -15,9 +15,11 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses, toMIMEHeader } from "../core/address.js";
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { MailOptions, SendResult, Transport, VerifyResult } from "../core/types.js";
 import { resolveAttachments } from "./resolve-attachments.js";
 
@@ -106,7 +108,7 @@ export class SparkPostTransport implements Transport {
       recipients: toRecipients(options),
     };
 
-    const response = await fetch(`${this.baseUrl}/api/v1/transmissions`, {
+    const response = await providerFetch(`${this.baseUrl}/api/v1/transmissions`, {
       method: "POST",
       headers: {
         Authorization: this.apiKey,
@@ -115,7 +117,7 @@ export class SparkPostTransport implements Transport {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "sparkpost")) as {
       results?: { id?: string; total_accepted_recipients?: number };
       errors?: unknown;
       message?: string;
@@ -151,7 +153,7 @@ export class SparkPostTransport implements Transport {
   /** Verifies the SparkPost API key by fetching account info. */
   async verify(): Promise<VerifyResult> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/v1/account`, {
+      const response = await providerFetch(`${this.baseUrl}/api/v1/account`, {
         headers: {
           Authorization: this.apiKey,
         },

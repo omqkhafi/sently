@@ -134,6 +134,12 @@ export interface SocketAdapter {
   read(): AsyncIterable<Uint8Array>;
   /** Close the connection. */
   close(): Promise<void>;
+  /** Abort the socket so an in-flight read or write settles. */
+  destroy?(): Promise<void>;
+  /** Drop bytes already received but not yet consumed. */
+  discardBuffered?(): void;
+  /** Detach plaintext reads before STARTTLS so the TLS stack owns the socket. */
+  prepareStartTls?(): void;
   /** Whether the connection is currently encrypted. */
   readonly secure: boolean;
   /** Whether the socket is connected. */
@@ -288,14 +294,44 @@ export interface SMTPConfig extends PoolConfig {
    * MITM attacks. Default: true when auth is set, false otherwise.
    */
   requireTLS?: boolean;
+  /**
+   * STARTTLS policy for a cleartext connection.
+   * `opportunistic` (default) upgrades when the server advertises STARTTLS.
+   * `required` fails before AUTH or MAIL if the upgrade is unavailable.
+   * `never` does not send STARTTLS even when it is advertised.
+   * Implicit TLS (`secure: true`) is already encrypted and skips STARTTLS.
+   */
+  starttls?: "required" | "opportunistic" | "never";
   /** TLS options for STARTTLS and direct TLS connections. */
   tls?: TLSOptions;
+  /**
+   * Name sent in EHLO. Default: the OS hostname, or `[127.0.0.1]` when no
+   * hostname is available. This is the client identity, not the server host.
+   */
+  clientName?: string;
   /** Socket connect timeout in milliseconds. */
   connectionTimeout?: number;
-  /** Timeout waiting for the SMTP greeting in milliseconds. */
+  /**
+   * Timeout waiting for the SMTP greeting in milliseconds.
+   * Default: `connectionTimeout` when set, otherwise 30 seconds. `0` disables.
+   */
   greetingTimeout?: number;
-  /** Idle socket timeout in milliseconds. */
+  /**
+   * Per-reply and per-write deadline in milliseconds.
+   * Default: `connectionTimeout` when set, otherwise 60 seconds. `0` disables.
+   */
   socketTimeout?: number;
+  /**
+   * Optional deadline for the whole SMTP send in milliseconds.
+   * `0` disables. Command deadlines still apply when this is omitted.
+   */
+  sendTimeout?: number;
+  /**
+   * When set, `attachment.path` must resolve inside this directory.
+   * Symlinks that point outside it are rejected. Without this option,
+   * `path` is trusted local I/O.
+   */
+  attachmentBasePath?: string;
   /** Deliver directly to recipient MX (no relay). Requires adapter support. */
   direct?: boolean;
   /** Runtime socket adapter for TCP/TLS I/O. */
@@ -377,6 +413,8 @@ export interface RetryConfig {
   backoff?: "exponential" | "linear" | "fixed";
   /** Base delay in ms. Default: 1000 */
   baseDelay?: number;
+  /** Maximum delay for one backoff sleep in ms. Default: 60000 */
+  maxDelay?: number;
   /**
    * HTTP status codes to retry on (for HTTP transports).
    * Default: [429, 500, 502, 503, 504]

@@ -46,6 +46,11 @@ describe("encodeCommand", () => {
     expect(text.endsWith("\r\n.\r\n")).toBe(true);
   });
 
+  test("dot-stuffs a bare CR before a dot", () => {
+    const cmd = encodeCommand({ type: "DATA_BODY", content: encodeUtf8("hello\r.\rbye") });
+    expect(decodeUtf8(cmd)).toBe("hello\r\n..\r\nbye\r\n.\r\n");
+  });
+
   test("AUTH LOGIN sends command only", () => {
     const cmd = encodeCommand({ type: "AUTH_LOGIN", user: "user", pass: "pass" });
     expect(decodeUtf8(cmd)).toBe("AUTH LOGIN\r\n");
@@ -86,6 +91,18 @@ describe("selectAuthMethod", () => {
 
   test("falls back to PLAIN", () => {
     expect(selectAuthMethod(["AUTH PLAIN"])).toBe("PLAIN");
+  });
+
+  test("reads space-separated mechanisms as separate tokens", () => {
+    expect(selectAuthMethod(["AUTH", "LOGIN", "PLAIN"])).toBe("LOGIN");
+    expect(selectAuthMethod(["AUTH", "PLAIN"])).toBe("PLAIN");
+    expect(selectAuthMethod(["AUTH", "CRAM-MD5"])).toBe("CRAM-MD5");
+    expect(selectAuthMethod(["AUTH=LOGIN"])).toBe("LOGIN");
+    expect(selectAuthMethod(["AUTH=PLAIN", "LOGIN"])).toBe("LOGIN");
+  });
+
+  test("throws when AUTH is absent", () => {
+    expect(() => selectAuthMethod(["STARTTLS", "SIZE", "12345"])).toThrow(/No supported AUTH/);
   });
 });
 

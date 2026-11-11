@@ -19,9 +19,11 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses, toMIMEHeader } from "../core/address.js";
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import { resolveIdempotencyKey } from "../core/idempotency-key.js";
 import { RateLimiter } from "../core/rate-limiter.js";
 import type { MailOptions, SendResult, Transport, VerifyResult } from "../core/types.js";
@@ -37,6 +39,8 @@ export interface ResendConfig {
   rateDelta?: number;
   /** Rate limit window in milliseconds. Default: `1000`. */
   rateLimit?: number;
+  /** HTTP deadline in milliseconds. Default: 30 seconds. `0` disables the deadline. */
+  timeoutMs?: number;
 }
 
 /** Maximum messages per Resend batch request (overridable per account). */
@@ -71,6 +75,8 @@ export class ResendTransport implements Transport {
   private readonly baseUrl: string;
   /** Optional rate limiter for multi-chunk batch sends. */
   private readonly rateLimiter: RateLimiter | null;
+  /** HTTP deadline passed to every Resend request. */
+  private readonly timeoutMs: number;
 
   /** Maximum messages per batch HTTP request. */
   readonly batchMax = RESEND_BATCH_MAX;
@@ -79,6 +85,7 @@ export class ResendTransport implements Transport {
   constructor(config: ResendConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl ?? "https://api.resend.com";
+    this.timeoutMs = config.timeoutMs ?? 30_000;
 
     const rateDelta = config.rateDelta ?? 2;
     if (rateDelta > 0) {
@@ -145,7 +152,8 @@ export class ResendTransport implements Transport {
     const body = await this.buildEmailBody(options);
     const idempotencyKey = resolveIdempotencyKey(options);
 
-    const response = await fetch(`${this.baseUrl}/emails`, {
+    const response = await providerFetch(`${this.baseUrl}/emails`, {
+      timeoutMs: this.timeoutMs,
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -155,7 +163,7 @@ export class ResendTransport implements Transport {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json()) as { id?: string; message?: string };
+    const payload = (await readJsonBody(response, "resend")) as { id?: string; message?: string };
 
     if (!response.ok) {
       throw new ResendError(payload.message ?? "Resend API error", response.status, payload);
@@ -179,7 +187,8 @@ export class ResendTransport implements Transport {
       const chunk = messages.slice(offset, offset + RESEND_BATCH_MAX);
       const bodies = await Promise.all(chunk.map((message) => this.buildEmailBody(message)));
 
-      const response = await fetch(`${this.baseUrl}/emails/batch`, {
+      const response = await providerFetch(`${this.baseUrl}/emails/batch`, {
+        timeoutMs: this.timeoutMs,
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
@@ -188,7 +197,7 @@ export class ResendTransport implements Transport {
         body: JSON.stringify(bodies),
       });
 
-      const payload = (await response.json()) as {
+      const payload = (await readJsonBody(response, "resend")) as {
         data?: Array<{ id?: string; error?: string }>;
         message?: string;
       };
@@ -231,7 +240,8 @@ export class ResendTransport implements Transport {
   /** Verifies the Resend API key by listing domains. */
   async verify(): Promise<VerifyResult> {
     try {
-      const response = await fetch(`${this.baseUrl}/domains`, {
+      const response = await providerFetch(`${this.baseUrl}/domains`, {
+        timeoutMs: this.timeoutMs,
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
         },

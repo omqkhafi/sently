@@ -51,6 +51,13 @@ await mailer.send({
 | `secure` | `boolean` | `false` |
 | `auth` | `SMTPAuth` | optional |
 | `requireTLS` | `boolean` | `true` when `auth` is set |
+| `starttls` | `"required" \| "opportunistic" \| "never"` | `opportunistic` |
+| `clientName` | `string` | OS hostname, else `[127.0.0.1]` |
+| `connectionTimeout` | `number` | `30000` ms on Node and Bun; `0` disables |
+| `greetingTimeout` | `number` | `connectionTimeout` when set, else `30000`; `0` disables |
+| `socketTimeout` | `number` | `connectionTimeout` when set, else `60000`; `0` disables |
+| `sendTimeout` | `number` | unset; `0` disables the whole-send deadline |
+| `attachmentBasePath` | `string` | unset; `path` is trusted local I/O |
 | `adapter` | `SocketAdapter` | auto via `createSMTPMailer` |
 | `pool` | `boolean` | `false` |
 | `dkim` | `DKIMConfig` | optional |
@@ -65,6 +72,12 @@ For local capture with defaults and REST helpers, use [Mailpit](./mailpit) or [I
   </Accordion>
   <Accordion title="createMailer rejects host and port">
     Pass an explicit transport, or use `createSMTPMailer` for relay configuration.
+  </Accordion>
+  <Accordion title="STARTTLS was not offered">
+    `starttls: "required"` fails with `TLS_FAILED` before AUTH or MAIL. The default `opportunistic` sends in cleartext only when the server does not advertise STARTTLS, and `requireTLS` still refuses AUTH on that connection.
+  </Accordion>
+  <Accordion title="The send hangs after connect">
+    Greeting and reply deadlines are enforced. A silent server fails with `TIMEOUT`. Set `greetingTimeout` or `socketTimeout` to `0` only when you accept an unbounded wait.
   </Accordion>
   <Accordion title="Local development without a real relay">
     Use [Mailpit](./mailpit), [Inbucket](./inbucket), or [Preview](/docs/decorators/preview).

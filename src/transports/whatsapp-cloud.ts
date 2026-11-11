@@ -18,7 +18,9 @@
  * });
  * ```
  */
+
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { VerifyResult } from "../core/types.js";
 import type {
   WhatsAppOptions,
@@ -101,7 +103,7 @@ export class WhatsAppCloudTransport implements WhatsAppTransport {
           text: { body: options.text },
         };
 
-    const response = await fetch(url, {
+    const response = await providerFetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
@@ -110,7 +112,7 @@ export class WhatsAppCloudTransport implements WhatsAppTransport {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "whatsapp-cloud")) as {
       messages?: Array<{ id?: string }>;
       error?: {
         message?: string;

@@ -24,6 +24,7 @@
 import { isFallbackHookTransport, isRetryHookTransport } from "./core/decorator-hooks.js";
 import { invokeHook } from "./core/hooks.js";
 import { runPlugins } from "./core/plugin.js";
+import { runWithSendHooks, type SendHookSlot } from "./core/send-context.js";
 import type { VerifyResult } from "./core/types.js";
 import type {
   WhatsAppHookContext,
@@ -81,22 +82,21 @@ export function createWhatsAppSender(config: WhatsAppSenderConfig): WhatsAppSend
 
       await invokeHook(hooks?.onSend, ctx);
 
+      const slot: SendHookSlot = {};
       if (hooks?.onRetry !== undefined && isRetryHookTransport(transport)) {
-        transport.setMailerOnRetry((attempt, error) => {
+        slot.onRetry = (attempt, error) => {
           void invokeHook(hooks.onRetry, ctx, attempt, error);
-        });
+        };
       }
-
       if (hooks?.onFallback !== undefined && isFallbackHookTransport(transport)) {
-        transport.setMailerOnFallback((failedProvider, nextProvider, error) => {
-          void invokeHook(hooks.onFallback, ctx, failedProvider, nextProvider, error);
-        });
+        slot.onFallback = (failedProvider, nextProvider, error) =>
+          invokeHook(hooks.onFallback, ctx, failedProvider, nextProvider, error);
       }
 
       const start = performance.now();
 
       try {
-        const result = await transport.send(processed);
+        const result = await runWithSendHooks(slot, () => transport.send(processed));
         const successCtx: WhatsAppHookContext = {
           ...ctx,
           messageId: result.messageId,
@@ -106,13 +106,6 @@ export function createWhatsAppSender(config: WhatsAppSenderConfig): WhatsAppSend
       } catch (error) {
         await invokeHook(hooks?.onError, ctx, error, performance.now() - start);
         throw error;
-      } finally {
-        if (isRetryHookTransport(transport)) {
-          transport.setMailerOnRetry(undefined);
-        }
-        if (isFallbackHookTransport(transport)) {
-          transport.setMailerOnFallback(undefined);
-        }
       }
     },
 

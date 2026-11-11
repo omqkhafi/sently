@@ -71,20 +71,44 @@ export function parse(payload: unknown): EmailEvent[] {
 /**
  * Verify a Mailgun webhook signature using HMAC-SHA256 (Web Crypto).
  * signingKey is the Mailgun webhook signing key.
+ *
+ * Returns false when any argument is missing or the key is unusable.
+ * `toleranceSeconds` defaults to 300. Pass `0` to disable the replay window.
  */
 export async function verifySignature(
   timestamp: string,
   token: string,
   signature: string,
   signingKey: string,
+  toleranceSeconds = 300,
 ): Promise<boolean> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(signingKey),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
+  if (!timestamp || !token || !signature || !signingKey) {
+    return false;
+  }
+
+  if (toleranceSeconds !== 0) {
+    const ts = Number(timestamp);
+    if (!Number.isFinite(ts)) {
+      return false;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    if (Math.abs(now - ts) > toleranceSeconds) {
+      return false;
+    }
+  }
+
+  let key: CryptoKey;
+  try {
+    key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(signingKey),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+  } catch {
+    return false;
+  }
 
   const data = new TextEncoder().encode(timestamp + token);
   const expected = await crypto.subtle.sign("HMAC", key, data);

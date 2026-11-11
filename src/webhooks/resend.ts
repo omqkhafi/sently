@@ -19,6 +19,9 @@ const RESEND_EVENT_MAP: Record<string, EmailEvent["type"]> = {
 /** Decode a Svix signing secret (`whsec_…`) to raw key bytes. */
 function decodeSvixSecret(secret: string): ArrayBuffer {
   const encoded = secret.startsWith("whsec_") ? secret.slice(6) : secret;
+  if (encoded.length === 0) {
+    throw new Error("empty svix secret");
+  }
   const binary = atob(encoded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
@@ -65,29 +68,49 @@ export function parse(payload: unknown): EmailEvent[] {
 
 /**
  * Verify a Resend webhook signature (Svix-style) using Web Crypto.
- * Returns false when verification cannot be performed or the signature is invalid.
+ * Returns false when verification cannot be performed, the secret is invalid,
+ * or the signature does not match.
+ *
+ * `toleranceSeconds` defaults to 300. Pass `0` to disable the replay window.
  */
 export async function verifySignature(
   payload: string,
   headers: { "svix-id"?: string; "svix-timestamp"?: string; "svix-signature"?: string },
   secret: string,
+  toleranceSeconds = 300,
 ): Promise<boolean> {
   const msgId = headers["svix-id"];
   const timestamp = headers["svix-timestamp"];
   const signatureHeader = headers["svix-signature"];
 
-  if (!msgId || !timestamp || !signatureHeader) {
+  if (!msgId || !timestamp || !signatureHeader || !secret) {
     return false;
   }
 
+  if (toleranceSeconds !== 0) {
+    const ts = Number(timestamp);
+    if (!Number.isFinite(ts)) {
+      return false;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    if (Math.abs(now - ts) > toleranceSeconds) {
+      return false;
+    }
+  }
+
   const signedContent = `${msgId}.${timestamp}.${payload}`;
-  const key = await crypto.subtle.importKey(
-    "raw",
-    decodeSvixSecret(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
+  let key: CryptoKey;
+  try {
+    key = await crypto.subtle.importKey(
+      "raw",
+      decodeSvixSecret(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+  } catch {
+    return false;
+  }
 
   const expected = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedContent));
   const expectedBytes = new Uint8Array(expected);

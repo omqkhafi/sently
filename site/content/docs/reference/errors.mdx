@@ -19,4 +19,14 @@ try {
 
 Provider error classes also retain provider response details where their transport exposes them.
 
+| `sentlyCode` | When |
+| --- | --- |
+| `TIMEOUT` | Connect, greeting, reply, or HTTP deadline elapsed |
+| `TLS_FAILED` | Certificate failure, or STARTTLS required but unavailable |
+| `TRANSIENT` | SMTP 421, 450, or 451 (`permanent` is `false`) |
+| `CONNECTION_FAILED` | Refused, unreachable, or DNS failure |
+| `INVALID_CONFIG` | Missing recipient, header injection, or empty SMTP password |
+
+`JSON.stringify` on `SentlyError` omits the raw SMTP reply. Log `sentlyCode`, `command`, and `statusCode`.
+
 <Cards><Card title="Security" href="/docs/guides/security" /></Cards>

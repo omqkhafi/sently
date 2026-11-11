@@ -1,16 +1,15 @@
+import { SentlyError } from "../core/errors.js";
 import type { Attachment } from "../core/types.js";
 
 /** Options for {@link resolveAttachments}. */
 export interface ResolveAttachmentsOptions {
   /**
    * If set, attachment paths must resolve within this directory.
-   * Prevents path traversal via `..` segments and sibling-directory
-   * prefix matches. Opt-in only.
+   * `..` segments, sibling-directory prefix matches, and symlinks whose
+   * real path leaves the directory are rejected.
    *
-   * Note: this check uses `node:path` `resolve()`, which does NOT
-   * dereference symlinks. A symlink located inside `basePath` that
-   * points outside of it will pass this check. If symlink traversal is
-   * a concern, resolve paths with `fs.realpath()` before passing them in.
+   * Without `basePath`, `attachment.path` is trusted local I/O: the
+   * process reads whatever filesystem path the caller supplies.
    */
   basePath?: string;
 }
@@ -46,14 +45,30 @@ export async function resolveAttachments(
         const { resolve, sep } = await import("node:path");
         const resolvedPath = resolve(attachment.path);
         const resolvedBase = resolve(options.basePath);
-        // startsWith alone is vulnerable: "/var/data-secret" passes "/var/data".
-        // Require an exact match or a trailing path separator.
-        const isWithin =
+        const lexicalWithin =
           resolvedPath === resolvedBase || resolvedPath.startsWith(resolvedBase + sep);
-        if (!isWithin) {
-          throw new Error(
-            `[sently] Attachment path "${resolvedPath}" escapes basePath "${resolvedBase}". ` +
-              "Use absolute paths within the allowed directory.",
+        if (!lexicalWithin) {
+          throw new SentlyError(
+            `Attachment path "${resolvedPath}" escapes basePath "${resolvedBase}"`,
+            "INVALID_CONFIG",
+          );
+        }
+        const realBase = await fs.realpath(resolvedBase);
+        let realFile: string;
+        try {
+          realFile = await fs.realpath(resolvedPath);
+        } catch (cause) {
+          throw new SentlyError(
+            `Attachment path "${resolvedPath}" could not be resolved`,
+            "INVALID_CONFIG",
+            { cause },
+          );
+        }
+        const realWithin = realFile === realBase || realFile.startsWith(realBase + sep);
+        if (!realWithin) {
+          throw new SentlyError(
+            `Attachment path "${realFile}" escapes basePath "${realBase}"`,
+            "INVALID_CONFIG",
           );
         }
       }

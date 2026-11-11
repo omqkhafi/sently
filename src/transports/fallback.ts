@@ -25,6 +25,7 @@
 import type { DecoratedTransport, FallbackAugmentedResult } from "../core/decorated-transport.js";
 import { SentlyError } from "../core/errors.js";
 import { getProviderLabel } from "../core/provider-label.js";
+import { sendHookSlot } from "../core/send-context.js";
 import type { MailOptions, SendResult, VerifyResult } from "../core/types.js";
 
 /** One failed provider attempt collected during failover. */
@@ -210,22 +211,26 @@ export class FallbackTransport<TOptions = MailOptions, TResult = SendResult>
         };
       } catch (err) {
         attempts.push({ provider, error: err });
-        this.markUnhealthy(provider);
+
+        const fallback = this.shouldFallback(err) !== false;
+        if (fallback) {
+          this.markUnhealthy(provider);
+        }
 
         const nextIndex = this.findNextTryIndex(i);
         if (nextIndex === -1) {
           break;
         }
-        if (this.shouldFallback(err) === false) {
+        if (!fallback) {
           throw err;
         }
-
         const nextProvider = getProviderLabel(
           this.transports[nextIndex] as DecoratedTransport<TOptions, TResult>,
         );
         this.onFallback?.(i, err);
-        if (this.mailerOnFallback !== undefined) {
-          await this.mailerOnFallback(provider, nextProvider, err);
+        const hooked = sendHookSlot.getStore()?.onFallback ?? this.mailerOnFallback;
+        if (hooked !== undefined) {
+          await hooked(provider, nextProvider, err);
         }
       }
     }

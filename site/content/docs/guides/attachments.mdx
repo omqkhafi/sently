@@ -16,4 +16,6 @@ await mailer.send({
 
 Attachments can set `contentType`, `encoding`, `contentId`, `inline`, and MIME `headers`.
 
+`path` without `attachmentBasePath` is trusted local I/O. Set `attachmentBasePath` on the SMTP config to reject paths and symlinks that resolve outside that directory.
+
 <Cards><Card title="Mail options" href="/docs/reference/mail-options" /></Cards>

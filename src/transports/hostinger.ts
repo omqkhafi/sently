@@ -39,9 +39,11 @@
  * );
  * ```
  */
+
 import { extractEmails, parseAddresses } from "../core/address.js";
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch } from "../core/http.js";
 import type {
   MailOptions,
   SendResult,
@@ -185,7 +187,7 @@ class HostingerTransportImpl implements Transport {
 
   /** List the mailboxes this token can manage — use it to discover your mailbox resource ID. */
   async listMailboxes(): Promise<HostingerMailbox[]> {
-    const response = await fetch(`${this.baseUrl}/api/v1/me`, {
+    const response = await providerFetch(`${this.baseUrl}/api/v1/me`, {
       headers: { Authorization: `Bearer ${this.token}` },
     });
 
@@ -267,7 +269,7 @@ class HostingerTransportImpl implements Transport {
   private async postSend(options: MailOptions, extras?: HostingerSendExtras): Promise<SendResult> {
     const body = await this.buildEmailBody(options, extras);
 
-    const response = await fetch(
+    const response = await providerFetch(
       `${this.baseUrl}/api/v1/mailboxes/${encodeURIComponent(this.mailbox)}/send`,
       {
         method: "POST",

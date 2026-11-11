@@ -19,9 +19,11 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses, toMIMEHeader } from "../core/address.js";
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { MailOptions, SendResult, Transport, VerifyResult } from "../core/types.js";
 import { resolveAttachments } from "./resolve-attachments.js";
 
@@ -96,7 +98,7 @@ export class PostmarkTransport implements Transport {
         : {}),
     };
 
-    const response = await fetch("https://api.postmarkapp.com/email", {
+    const response = await providerFetch("https://api.postmarkapp.com/email", {
       method: "POST",
       headers: {
         "X-Postmark-Server-Token": this.serverToken,
@@ -106,7 +108,7 @@ export class PostmarkTransport implements Transport {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "postmark")) as {
       MessageID?: string;
       Message?: string;
       ErrorCode?: number;
@@ -135,14 +137,17 @@ export class PostmarkTransport implements Transport {
   /** Verifies the Postmark server token by fetching server info. */
   async verify(): Promise<VerifyResult> {
     try {
-      const response = await fetch("https://api.postmarkapp.com/server", {
+      const response = await providerFetch("https://api.postmarkapp.com/server", {
         headers: {
           "X-Postmark-Server-Token": this.serverToken,
           Accept: "application/json",
         },
       });
 
-      const payload = (await response.json()) as { Name?: string; Message?: string };
+      const payload = (await readJsonBody(response, "postmark")) as {
+        Name?: string;
+        Message?: string;
+      };
 
       if (!response.ok) {
         return {

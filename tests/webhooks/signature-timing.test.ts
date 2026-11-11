@@ -66,7 +66,7 @@ async function signResendBase64(
 
 describe("verifyMailgunSignature", () => {
   test("accepts a valid signature and rejects a last-byte tamper", async () => {
-    const timestamp = "1529006854";
+    const timestamp = String(Math.floor(Date.now() / 1000));
     const token = "test-token";
     const signingKey = "test-signing-key";
     const signature = await signMailgunHex(timestamp, token, signingKey);
@@ -90,7 +90,7 @@ describe("verifyResendSignature", () => {
     const payload = '{"type":"email.delivered"}';
     const secret = `whsec_${btoa("super-secret-key-for-test!!")}`;
     const msgId = "msg_123";
-    const timestamp = "1614265330";
+    const timestamp = String(Math.floor(Date.now() / 1000));
     const signature = await signResendBase64(payload, secret, msgId, timestamp);
 
     expect(
@@ -126,7 +126,7 @@ describe("verifyResendSignature", () => {
     const payload = "{}";
     const secret = `whsec_${btoa("another-test-secret-key!!!!")}`;
     const msgId = "msg_456";
-    const timestamp = "1614265330";
+    const timestamp = String(Math.floor(Date.now() / 1000));
     const signature = await signResendBase64(payload, secret, msgId, timestamp);
 
     await expect(

@@ -10,6 +10,8 @@ export type SentlyErrorCode =
   | "RATE_LIMITED"
   | "TIMEOUT"
   | "CONNECTION_FAILED"
+  | "TLS_FAILED"
+  | "TRANSIENT"
   | "PROVIDER_ERROR"
   | "BAD_REQUEST";
 
@@ -21,6 +23,12 @@ export interface SentlyErrorOptions {
   cause?: unknown;
   /** Provider identifier (e.g. `"smtp"`, `"resend"`). */
   provider?: string;
+  /**
+   * Whether the failure is permanent.
+   * `false` for SMTP 4xx / {@link SentlyErrorCode} `"TRANSIENT"`.
+   * `true` for SMTP 5xx. Omitted when permanence is unknown.
+   */
+  permanent?: boolean;
 }
 
 /**
@@ -44,6 +52,12 @@ export class SentlyError extends Error {
   readonly provider?: string;
 
   /**
+   * Whether the failure is permanent.
+   * Safe to log. SMTP 4xx is `false`; SMTP 5xx is `true`.
+   */
+  readonly permanent?: boolean;
+
+  /**
    * Error code — machine-readable string on {@link SentlyError}, or a legacy
    * provider/SMTP-specific value on subclasses (numeric SMTP codes, Brevo/SES API codes).
    */
@@ -61,6 +75,25 @@ export class SentlyError extends Error {
     if (options?.provider !== undefined) {
       this.provider = options.provider;
     }
+    if (options?.permanent !== undefined) {
+      this.permanent = options.permanent;
+    }
+  }
+
+  /**
+   * Fields that are safe to log or serialize.
+   * Subclasses omit provider response text that may contain recipients or usernames.
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      name: this.name,
+      message: this.message,
+      sentlyCode: this.sentlyCode,
+      code: this.code,
+      ...(this.statusCode !== undefined ? { statusCode: this.statusCode } : {}),
+      ...(this.provider !== undefined ? { provider: this.provider } : {}),
+      ...(this.permanent !== undefined ? { permanent: this.permanent } : {}),
+    };
   }
 }
 
@@ -95,7 +128,7 @@ export function smtpCodeToSentlyCode(smtpCode: number, command: string): SentlyE
     return "SMTP_AUTH_FAILED";
   }
   if (smtpCode === 421 || smtpCode === 450 || smtpCode === 451) {
-    return "TIMEOUT";
+    return "TRANSIENT";
   }
   if (smtpCode === 0) {
     if (command === "CONNECT" || command === "READ" || command === "MX") {

@@ -34,8 +34,10 @@
  * });
  * ```
  */
+
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch } from "../core/http.js";
 import type { SmsOptions, SmsSendResult, SmsTransport } from "../core/sms-types.js";
 import type { VerifyResult } from "../core/types.js";
 
@@ -146,7 +148,7 @@ export class TwilioSmsTransport implements SmsTransport {
     }
 
     const url = `https://api.twilio.com/2010-04-01/Accounts/${this.accountSid}/Messages.json`;
-    const response = await fetch(url, {
+    const response = await providerFetch(url, {
       method: "POST",
       headers: {
         ...this.authHeaders(),
@@ -194,7 +196,7 @@ export class TwilioSmsTransport implements SmsTransport {
 
     try {
       const url = `https://api.twilio.com/2010-04-01/Accounts/${this.accountSid}.json`;
-      const response = await fetch(url, {
+      const response = await providerFetch(url, {
         method: "GET",
         headers: {
           ...this.authHeaders(),

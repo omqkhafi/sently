@@ -12,9 +12,11 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses } from "../core/address.js";
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type {
   BrevoConfig,
   MailOptions,
@@ -100,7 +102,7 @@ export class BrevoTransport implements Transport {
         : {}),
     };
 
-    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    const response = await providerFetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {
         "api-key": this.apiKey,
@@ -109,7 +111,7 @@ export class BrevoTransport implements Transport {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "brevo")) as {
       messageId?: string;
       message?: string;
       code?: string;
@@ -139,13 +141,16 @@ export class BrevoTransport implements Transport {
   /** Verifies the Brevo API key by fetching account info. */
   async verify(): Promise<VerifyResult> {
     try {
-      const response = await fetch("https://api.brevo.com/v3/account", {
+      const response = await providerFetch("https://api.brevo.com/v3/account", {
         headers: {
           "api-key": this.apiKey,
         },
       });
 
-      const payload = (await response.json()) as { companyName?: string; message?: string };
+      const payload = (await readJsonBody(response, "brevo")) as {
+        companyName?: string;
+        message?: string;
+      };
 
       if (!response.ok) {
         return {

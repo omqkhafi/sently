@@ -22,8 +22,10 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses } from "../core/address.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { MailOptions, SendResult, Transport, VerifyResult } from "../core/types.js";
 
 /** Taqnyat Email API configuration. */
@@ -99,7 +101,7 @@ export class TaqnyatMailTransport implements Transport {
       msg,
     });
 
-    const response = await fetch("https://api.taqnyat.sa/mailSend.php", {
+    const response = await providerFetch("https://api.taqnyat.sa/mailSend.php", {
       method: "POST",
       headers: {
         // Auth section: Bearer for REST; examples also pass bearerTokens in the body.
@@ -109,7 +111,7 @@ export class TaqnyatMailTransport implements Transport {
       body: params,
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "taqnyat-mail")) as {
       status?: number;
       ResponseStatus?: string;
       Data?: {

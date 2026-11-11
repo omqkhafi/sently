@@ -16,8 +16,10 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses } from "../core/address.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { MailOptions, SendResult, Transport, VerifyResult } from "../core/types.js";
 
 /** Plunk HTTP API configuration. */
@@ -65,7 +67,7 @@ export class PlunkTransport implements Transport {
     const responses: string[] = [];
 
     for (const recipient of recipients) {
-      const response = await fetch("https://api.useplunk.com/v1/send", {
+      const response = await providerFetch("https://api.useplunk.com/v1/send", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
@@ -79,7 +81,7 @@ export class PlunkTransport implements Transport {
         }),
       });
 
-      const payload = (await response.json()) as {
+      const payload = (await readJsonBody(response, "plunk")) as {
         success?: boolean;
         emails?: Array<{ id?: string; email?: string }>;
         message?: string;

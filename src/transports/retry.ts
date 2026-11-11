@@ -17,22 +17,32 @@
  */
 import type { DecoratedTransport } from "../core/decorated-transport.js";
 import { SentlyError } from "../core/errors.js";
+import { invokeHook } from "../core/hooks.js";
+import { sendHookSlot } from "../core/send-context.js";
 import type { MailOptions, RetryConfig, SendResult, VerifyResult } from "../core/types.js";
+
+/** Upper bound on a single backoff delay. */
+const DEFAULT_MAX_DELAY_MS = 60_000;
 
 const DEFAULT_RETRY_ON = [429, 500, 502, 503, 504];
 
-function computeDelay(attempt: number, backoff: string, base: number): number {
+function computeDelay(attempt: number, backoff: string, base: number, maxDelay: number): number {
+  let delay = base;
   if (backoff === "exponential") {
-    return base * 2 ** (attempt - 1);
+    delay = base * 2 ** (attempt - 1);
+  } else if (backoff === "linear") {
+    delay = base * attempt;
   }
-  if (backoff === "linear") {
-    return base * attempt;
-  }
-  return base;
+  return Math.min(delay, maxDelay);
 }
 
 function shouldRetry(err: unknown, retryOn: number[]): boolean {
-  if (err instanceof SentlyError && err.sentlyCode === "SMTP_AUTH_FAILED") {
+  if (
+    err instanceof SentlyError &&
+    (err.sentlyCode === "SMTP_AUTH_FAILED" ||
+      err.sentlyCode === "BAD_REQUEST" ||
+      err.sentlyCode === "INVALID_CONFIG")
+  ) {
     return false;
   }
 
@@ -63,6 +73,8 @@ export class RetryTransport<TOptions = MailOptions, TResult = SendResult>
   private readonly backoff: "exponential" | "linear" | "fixed";
   /** Base delay in milliseconds before the first retry. */
   private readonly baseDelay: number;
+  /** Cap on a single backoff delay. */
+  private readonly maxDelay: number;
   /** HTTP status codes that trigger a retry. */
   private readonly retryOn: number[];
   /** Optional callback invoked before each retry attempt. */
@@ -79,9 +91,17 @@ export class RetryTransport<TOptions = MailOptions, TResult = SendResult>
     private readonly _sleep: (ms: number) => Promise<void> = (ms) =>
       new Promise((resolve) => setTimeout(resolve, ms)),
   ) {
-    this.maxAttempts = config?.maxAttempts ?? 3;
+    const maxAttempts = config?.maxAttempts ?? 3;
+    if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+      throw new SentlyError(
+        "maxAttempts must be an integer greater than or equal to 1",
+        "INVALID_CONFIG",
+      );
+    }
+    this.maxAttempts = maxAttempts;
     this.backoff = config?.backoff ?? "exponential";
     this.baseDelay = config?.baseDelay ?? 1000;
+    this.maxDelay = config?.maxDelay ?? DEFAULT_MAX_DELAY_MS;
     this.retryOn = config?.retryOn ?? DEFAULT_RETRY_ON;
     this.onRetry = config?.onRetry;
     this.mailerOnRetry = undefined;
@@ -124,9 +144,10 @@ export class RetryTransport<TOptions = MailOptions, TResult = SendResult>
         if (!shouldRetry(err, this.retryOn)) {
           throw err;
         }
-        const delay = computeDelay(attempt, this.backoff, this.baseDelay);
-        this.onRetry?.(attempt, err);
-        this.mailerOnRetry?.(attempt, err);
+        const delay = computeDelay(attempt, this.backoff, this.baseDelay, this.maxDelay);
+        await invokeHook(this.onRetry, attempt, err);
+        const hooked = sendHookSlot.getStore()?.onRetry ?? this.mailerOnRetry;
+        await invokeHook(hooked, attempt, err);
         await this._sleep(delay);
       }
     }

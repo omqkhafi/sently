@@ -42,8 +42,10 @@ export function canonicalizeBodyRelaxed(body: string): string {
   const normalized = body.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const lines = normalized
     .split("\n")
-    .map((line) => line.replace(/[ \t]+$/g, "").replace(/[ \t]+/g, " "))
-    .filter((line) => line.length > 0);
+    .map((line) => line.replace(/[ \t]+/g, " ").replace(/[ \t]+$/g, ""));
+  while (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
   if (lines.length === 0) {
     return CRLF;
   }

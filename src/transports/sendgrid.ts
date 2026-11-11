@@ -19,9 +19,11 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses } from "../core/address.js";
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { MailOptions, SendResult, Transport, VerifyResult } from "../core/types.js";
 import { resolveAttachments } from "./resolve-attachments.js";
 
@@ -153,7 +155,7 @@ export class SendGridTransport implements Transport {
         : {}),
     };
 
-    const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    const response = await providerFetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -197,7 +199,7 @@ export class SendGridTransport implements Transport {
       content: this.buildContent(first),
     };
 
-    const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    const response = await providerFetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -220,7 +222,7 @@ export class SendGridTransport implements Transport {
   /** Verifies the SendGrid API key by fetching the user profile. */
   async verify(): Promise<VerifyResult> {
     try {
-      const response = await fetch("https://api.sendgrid.com/v3/user/profile", {
+      const response = await providerFetch("https://api.sendgrid.com/v3/user/profile", {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
         },
@@ -235,7 +237,7 @@ export class SendGridTransport implements Transport {
         };
       }
 
-      const payload = (await response.json()) as { username?: string };
+      const payload = (await readJsonBody(response, "sendgrid")) as { username?: string };
       return {
         ok: true,
         provider: "sendgrid",

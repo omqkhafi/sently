@@ -43,7 +43,8 @@ export async function createPooledConnection(
   const config = resolveSMTPConfig(options.config);
   const adapter = await options.createAdapter();
   await adapter.connect(options.connectHost, config.port);
-  await openSMTPSession(adapter, config);
+  const capabilities = await openSMTPSession(adapter, config);
+  const allow8BitMime = capabilities.some((cap) => cap.toUpperCase() === "8BITMIME");
 
   let messageCount = 0;
   let idle = true;
@@ -68,9 +69,13 @@ export async function createPooledConnection(
         try {
           const resolvedOptions = {
             ...mailOptions,
-            attachments: await resolveAttachments(mailOptions.attachments),
+            attachments: await resolveAttachments(mailOptions.attachments, {
+              ...(config.attachmentBasePath !== undefined
+                ? { basePath: config.attachmentBasePath }
+                : {}),
+            }),
           };
-          const mime = await buildMIME(resolvedOptions, config.dkim);
+          const mime = await buildMIME(resolvedOptions, config.dkim, { allow8BitMime });
           const result = await deliverSMTPMessage(adapter, mime);
           messageCount += 1;
           return result;

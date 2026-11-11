@@ -97,6 +97,8 @@ export class IdempotencyTransport implements Transport {
 
   private readonly store: IdempotencyStore;
   private readonly ttlMs: number;
+  /** In-flight send promises keyed so concurrent callers share one attempt. */
+  private readonly inflight = new Map<string, Promise<SendResult>>();
 
   /** Wraps an inner transport with idempotency deduplication. */
   constructor(
@@ -115,20 +117,35 @@ export class IdempotencyTransport implements Transport {
       return this.inner.send(options);
     }
 
-    if (await this.store.has(key)) {
-      return syntheticDedupedResult(options);
+    const existing = this.inflight.get(key);
+    if (existing) {
+      return existing;
     }
 
-    const result = await this.inner.send(options);
-    await this.store.set(key, this.ttlMs);
-    return result;
+    const work = (async (): Promise<SendResult> => {
+      if (await this.store.has(key)) {
+        return syntheticDedupedResult(options);
+      }
+      const result = await this.inner.send(options);
+      await this.store.set(key, this.ttlMs);
+      return result;
+    })();
+
+    this.inflight.set(key, work);
+    try {
+      return await work;
+    } finally {
+      if (this.inflight.get(key) === work) {
+        this.inflight.delete(key);
+      }
+    }
   }
 
-  /** Delegates batch sends to the inner transport when available. */
+  /**
+   * Honours the idempotency store for every message.
+   * Duplicates do not call the inner transport.
+   */
   async sendBatch(messages: MailOptions[]): Promise<SendResult[]> {
-    if (this.inner.sendBatch) {
-      return this.inner.sendBatch(messages);
-    }
     return Promise.all(messages.map((message) => this.send(message)));
   }
 

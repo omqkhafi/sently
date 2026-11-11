@@ -83,10 +83,11 @@ describe("SMTPTransport", () => {
     });
 
     expect(result.accepted).toEqual(["recipient@example.com"]);
-    expect(result.messageId).toMatch(/^<.+@sently>$/);
+    expect(result.messageId).toMatch(/^<[0-9a-f-]+@example\.com>$/i);
 
     const dialog = adapter.commands.map((c) => decodeUtf8(c)).join("");
-    expect(dialog).toContain("EHLO smtp.example.com");
+    expect(dialog).toContain("EHLO ");
+    expect(dialog).not.toContain("EHLO smtp.example.com");
     expect(dialog).toContain("STARTTLS");
     expect(dialog).toContain("AUTH LOGIN");
     expect(dialog).toContain("MAIL FROM:<sender@example.com>");

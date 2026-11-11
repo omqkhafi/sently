@@ -27,7 +27,9 @@
  * await msegat.verifyOtp({ id: otp.id, code: "1234", lang: "En" });
  * ```
  */
+
 import { httpStatusToSentlyCode, SentlyError, type SentlyErrorCode } from "../core/errors.js";
+import { providerFetch } from "../core/http.js";
 import type { SmsOptions, SmsSendResult, SmsTransport } from "../core/sms-types.js";
 import type { VerifyResult } from "../core/types.js";
 
@@ -180,7 +182,7 @@ async function postJson(
   body: Record<string, unknown>,
   headers?: Record<string, string>,
 ): Promise<{ response: Response; text: string; payload: Record<string, unknown> }> {
-  const response = await fetch(url, {
+  const response = await providerFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -354,7 +356,7 @@ export class MsegatTransport implements SmsTransport {
     url.searchParams.set("apiKey", this.apiKey);
 
     try {
-      const response = await fetch(url, {
+      const response = await providerFetch(url, {
         method: "GET",
         headers: {
           // Matches Postman Credits request headers.

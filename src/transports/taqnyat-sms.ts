@@ -38,7 +38,9 @@
  * });
  * ```
  */
+
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { SmsOptions, SmsSendResult, SmsTransport } from "../core/sms-types.js";
 import type { VerifyResult } from "../core/types.js";
 import { normalizeTaqnyatPhone } from "./taqnyat-phone.js";
@@ -275,7 +277,7 @@ export class TaqnyatSmsTransport implements SmsTransport {
       body.smsId = options.messageId;
     }
 
-    const response = await fetch("https://api.taqnyat.sa/v1/messages", {
+    const response = await providerFetch("https://api.taqnyat.sa/v1/messages", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.bearerToken}`,
@@ -284,7 +286,7 @@ export class TaqnyatSmsTransport implements SmsTransport {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "taqnyat-sms")) as {
       statusCode?: number;
       messageId?: number;
       cost?: number;
@@ -332,7 +334,7 @@ export class TaqnyatSmsTransport implements SmsTransport {
       },
     ];
 
-    const response = await fetch("https://api.taqnyat.sa/verify.php/", {
+    const response = await providerFetch("https://api.taqnyat.sa/verify.php/", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.bearerToken}`,
@@ -391,7 +393,7 @@ export class TaqnyatSmsTransport implements SmsTransport {
       },
     ];
 
-    const response = await fetch("https://api.taqnyat.sa/verify.php/", {
+    const response = await providerFetch("https://api.taqnyat.sa/verify.php/", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.bearerToken}`,
@@ -434,13 +436,13 @@ export class TaqnyatSmsTransport implements SmsTransport {
    * Not part of {@link SmsTransport}.
    */
   async getBalance(): Promise<TaqnyatBalance> {
-    const response = await fetch(
+    const response = await providerFetch(
       `https://api.taqnyat.sa/account/balance?bearerTokens=${encodeURIComponent(this.bearerToken)}`,
       {
         headers: { Authorization: `Bearer ${this.bearerToken}` },
       },
     );
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "taqnyat-sms")) as {
       statusCode?: number;
       accountStatus?: string;
       balance?: string;
@@ -473,13 +475,13 @@ export class TaqnyatSmsTransport implements SmsTransport {
    * Not part of {@link SmsTransport}.
    */
   async listSenders(): Promise<TaqnyatSender[]> {
-    const response = await fetch(
+    const response = await providerFetch(
       `https://api.taqnyat.sa/v1/messages/senders?bearerTokens=${encodeURIComponent(this.bearerToken)}`,
       {
         headers: { Authorization: `Bearer ${this.bearerToken}` },
       },
     );
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "taqnyat-sms")) as {
       statusCode?: number;
       senders?: Array<{ senderName?: string; status?: string }>;
       message?: string;
@@ -522,7 +524,7 @@ export class TaqnyatSmsTransport implements SmsTransport {
       body.smsId = options.messageId;
     }
 
-    const response = await fetch("https://api.taqnyat.sa/v1/messages", {
+    const response = await providerFetch("https://api.taqnyat.sa/v1/messages", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.bearerToken}`,
@@ -531,7 +533,7 @@ export class TaqnyatSmsTransport implements SmsTransport {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "taqnyat-sms")) as {
       statusCode?: number;
       messageId?: number;
       cost?: number;
@@ -567,12 +569,12 @@ export class TaqnyatSmsTransport implements SmsTransport {
     url.searchParams.set("bearerTokens", this.bearerToken);
     url.searchParams.set("deleteId", String(deleteId));
 
-    const response = await fetch(url, {
+    const response = await providerFetch(url, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${this.bearerToken}` },
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "taqnyat-sms")) as {
       statusCode?: number;
       message?: string;
     };

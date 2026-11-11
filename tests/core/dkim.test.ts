@@ -8,10 +8,14 @@ import {
 } from "../../src/core/dkim.js";
 
 describe("canonicalizeBodyRelaxed", () => {
-  test("RFC 6376 Appendix B body example", () => {
+  test("keeps a leading empty line and strips only trailing empty lines", () => {
     const body = "  \r\n A  \r\n \t B  \r\n C  \r\n\r\n";
     const canonical = canonicalizeBodyRelaxed(body);
-    expect(canonical).toBe(" A\r\n B\r\n C\r\n");
+    expect(canonical).toBe("\r\n A\r\n B\r\n C\r\n");
+  });
+
+  test("keeps an empty line in the middle of the body", () => {
+    expect(canonicalizeBodyRelaxed("foo  \r\n\r\nbar \t\r\n\r\n\r\n")).toBe("foo\r\n\r\nbar\r\n");
   });
 
   test("empty body ends with CRLF", () => {

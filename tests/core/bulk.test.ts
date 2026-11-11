@@ -132,6 +132,33 @@ describe("sendBulk", () => {
     expect(maxInFlight).toBe(2);
   });
 
+  test("a throwing onSuccess still counts the message as sent", async () => {
+    const transport: Transport = {
+      send: async (options) => successResult(options.subject),
+    };
+    const mailer = await createMailer({ transport });
+    const result = await mailer.sendBulk([message("One"), message("Two")], {
+      onSuccess: () => {
+        throw new Error("hook failed");
+      },
+    });
+    expect(result.sent).toBe(2);
+    expect(result.results.every((entry) => entry.status === "sent")).toBe(true);
+  });
+
+  test("rejects a non-positive concurrency", async () => {
+    const transport: Transport = {
+      send: async (options) => successResult(options.subject),
+    };
+    const mailer = await createMailer({ transport });
+    await expect(mailer.sendBulk([message("One")], { concurrency: 0 })).rejects.toMatchObject({
+      sentlyCode: "INVALID_CONFIG",
+    });
+    await expect(mailer.sendBulk([message("One")], { concurrency: Number.NaN })).rejects.toMatchObject(
+      { sentlyCode: "INVALID_CONFIG" },
+    );
+  });
+
   test("empty array returns zero counts", async () => {
     const transport: Transport = {
       send: async (options) => successResult(options.subject),

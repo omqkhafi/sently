@@ -1,8 +1,22 @@
 /**
  * Integration checks — every published subpath resolves and core v0.8 APIs behave end-to-end.
+ * Imports `dist/` after a build and falls back to `src/` so `bun test` works on a fresh clone.
  */
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import type { MailOptions, SendResult, Transport } from "../../src/core/types.js";
+
+const distReady = existsSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../dist/index.js"));
+
+/** Prefer the built entry when it exists; otherwise load the TypeScript source. */
+function modPath(distPath: string): string {
+  if (distReady) {
+    return distPath;
+  }
+  return distPath.replace("../../dist/", "../../src/").replace(/\.js$/, ".ts");
+}
 
 const baseMessage: MailOptions = {
   from: "sender@example.com",
@@ -183,7 +197,7 @@ const subpathImports: Array<{ path: string; check: (mod: Record<string, unknown>
 describe("published API surface (dist)", () => {
   for (const { path, check } of subpathImports) {
     test(`${path} resolves and exports expected symbols`, async () => {
-      const mod = (await import(path)) as Record<string, unknown>;
+      const mod = (await import(modPath(path))) as Record<string, unknown>;
       check(mod);
     });
   }
@@ -191,7 +205,7 @@ describe("published API surface (dist)", () => {
 
 describe("v0.8 API behavior", () => {
   test("FallbackTransport.verifyAll + verify() agree on first healthy provider", async () => {
-    const { FallbackTransport } = await import("../../dist/transports/fallback.js");
+    const { FallbackTransport } = await import(modPath("../../dist/transports/fallback.js"));
     const primary: Transport = {
       provider: "primary",
       verify: async () => ({ ok: false, provider: "primary" }),
@@ -215,7 +229,7 @@ describe("v0.8 API behavior", () => {
 
   test("WeightedFallbackTransport.verify() delegates to inner chain", async () => {
     const { WeightedFallbackTransport } = await import(
-      "../../dist/transports/weighted-fallback.js"
+      modPath("../../dist/transports/weighted-fallback.js"),
     );
     const inner: Transport = {
       provider: "only",
@@ -230,9 +244,9 @@ describe("v0.8 API behavior", () => {
   });
 
   test("createMailer wires onFallback through dist mailer bundle", async () => {
-    const { createMailer } = await import("../../dist/mailer.js");
-    const { FallbackTransport } = await import("../../dist/transports/fallback.js");
-    const { ResendError } = await import("../../dist/transports/resend.js");
+    const { createMailer } = await import(modPath("../../dist/mailer.js"));
+    const { FallbackTransport } = await import(modPath("../../dist/transports/fallback.js"));
+    const { ResendError } = await import(modPath("../../dist/transports/resend.js"));
 
     const events: string[] = [];
     const primary: Transport = {
@@ -261,7 +275,7 @@ describe("v0.8 API behavior", () => {
 
   test("CloudflareEmailTransport from dist sends through binding", async () => {
     const { CloudflareEmailTransport } = await import(
-      "../../dist/transports/cloudflare-email.js"
+      modPath("../../dist/transports/cloudflare-email.js"),
     );
 
     let sent = false;
@@ -277,8 +291,8 @@ describe("v0.8 API behavior", () => {
   });
 
   test("createMailer.verify() delegates to FallbackTransport.verify()", async () => {
-    const { createMailer } = await import("../../dist/mailer.js");
-    const { FallbackTransport } = await import("../../dist/transports/fallback.js");
+    const { createMailer } = await import(modPath("../../dist/mailer.js"));
+    const { FallbackTransport } = await import(modPath("../../dist/transports/fallback.js"));
 
     const primary: Transport = {
       provider: "primary",
@@ -301,9 +315,9 @@ describe("v0.8 API behavior", () => {
   });
 
   test("FallbackOptions.onFallback and mailer onFallback can both fire", async () => {
-    const { createMailer } = await import("../../dist/mailer.js");
-    const { FallbackTransport } = await import("../../dist/transports/fallback.js");
-    const { ResendError } = await import("../../dist/transports/resend.js");
+    const { createMailer } = await import(modPath("../../dist/mailer.js"));
+    const { FallbackTransport } = await import(modPath("../../dist/transports/fallback.js"));
+    const { ResendError } = await import(modPath("../../dist/transports/resend.js"));
 
     const transportEvents: number[] = [];
     const mailerEvents: string[] = [];
@@ -340,7 +354,7 @@ describe("v0.8 API behavior", () => {
   });
 
   test("consoleObserver returns usable hooks from dist", async () => {
-    const { consoleObserver } = await import("../../dist/observability/console.js");
+    const { consoleObserver } = await import(modPath("../../dist/observability/console.js"));
     const hooks = consoleObserver("[test]");
     expect(typeof hooks.onSend).toBe("function");
     expect(typeof hooks.onSuccess).toBe("function");

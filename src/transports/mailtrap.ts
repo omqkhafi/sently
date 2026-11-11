@@ -12,9 +12,11 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses } from "../core/address.js";
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { MailOptions, SendResult, Transport, VerifyResult } from "../core/types.js";
 import { resolveAttachments } from "./resolve-attachments.js";
 
@@ -112,7 +114,7 @@ export class MailtrapTransport implements Transport {
         : {}),
     };
 
-    const response = await fetch(this.sendUrl(), {
+    const response = await providerFetch(this.sendUrl(), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiToken}`,
@@ -121,7 +123,7 @@ export class MailtrapTransport implements Transport {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "mailtrap")) as {
       success?: boolean;
       message_ids?: string[];
       message?: string;

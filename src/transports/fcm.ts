@@ -28,8 +28,10 @@
  * });
  * ```
  */
+
 import { encodeBase64Url, encodeUtf8 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch } from "../core/http.js";
 import type {
   FcmPushOptions,
   PushOptions,
@@ -127,7 +129,7 @@ export class FcmTransport implements PushTransport {
     const message = buildFcmMessage(options);
     const url = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(this.projectId)}/messages:send`;
 
-    const response = await fetch(url, {
+    const response = await providerFetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -193,7 +195,7 @@ export class FcmTransport implements PushTransport {
       assertion: jwt,
     });
 
-    const response = await fetch(TOKEN_URL, {
+    const response = await providerFetch(TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),

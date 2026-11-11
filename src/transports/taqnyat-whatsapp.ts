@@ -24,7 +24,9 @@
  * await wa.send({ to: "+9665xxxxxxxx", template: { name: "welcome", language: "ar" } });
  * ```
  */
+
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { VerifyResult } from "../core/types.js";
 import type {
   WhatsAppOptions,
@@ -254,13 +256,13 @@ export class TaqnyatWhatsAppTransport implements WhatsAppTransport {
    * Not part of {@link WhatsAppTransport}.
    */
   async listTemplates(): Promise<TaqnyatWhatsAppTemplate[]> {
-    const response = await fetch("https://api.taqnyat.sa/wa/v2/templates/?limit=5000", {
+    const response = await providerFetch("https://api.taqnyat.sa/wa/v2/templates/?limit=5000", {
       headers: {
         Authorization: `Bearer ${this.bearerToken}`,
         Accept: "application/json",
       },
     });
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "taqnyat-whatsapp")) as {
       waba_templates?: Array<Record<string, unknown>>;
       message?: string;
       reason?: string;
@@ -286,7 +288,7 @@ export class TaqnyatWhatsAppTransport implements WhatsAppTransport {
   async createTemplate(
     options: TaqnyatCreateTemplateOptions,
   ): Promise<{ id?: string; category?: string; status: string; provider: "taqnyat-whatsapp" }> {
-    const response = await fetch("https://api.taqnyat.sa/wa/v2/templates/", {
+    const response = await providerFetch("https://api.taqnyat.sa/wa/v2/templates/", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.bearerToken}`,
@@ -300,7 +302,7 @@ export class TaqnyatWhatsAppTransport implements WhatsAppTransport {
         components: options.components,
       }),
     });
-    const payload = (await response.json()) as Record<string, unknown>;
+    const payload = (await readJsonBody(response, "taqnyat-whatsapp")) as Record<string, unknown>;
     const status =
       typeof payload.statuses === "string"
         ? payload.statuses
@@ -328,7 +330,7 @@ export class TaqnyatWhatsAppTransport implements WhatsAppTransport {
     name: string;
     id: string | number;
   }): Promise<{ ok: true; provider: "taqnyat-whatsapp" }> {
-    const response = await fetch("https://api.taqnyat.sa/wa/v2/templates/", {
+    const response = await providerFetch("https://api.taqnyat.sa/wa/v2/templates/", {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${this.bearerToken}`,
@@ -336,7 +338,7 @@ export class TaqnyatWhatsAppTransport implements WhatsAppTransport {
       },
       body: JSON.stringify({ name: options.name, id: options.id }),
     });
-    const payload = (await response.json()) as Record<string, unknown>;
+    const payload = (await readJsonBody(response, "taqnyat-whatsapp")) as Record<string, unknown>;
     const ok =
       response.ok &&
       (payload.message === "201" || payload.reason === "success" || payload.message === undefined);
@@ -381,7 +383,7 @@ export class TaqnyatWhatsAppTransport implements WhatsAppTransport {
     body: Record<string, unknown>,
     options: WhatsAppOptions,
   ): Promise<WhatsAppSendResult> {
-    const response = await fetch("https://api.taqnyat.sa/wa/v2/messages/", {
+    const response = await providerFetch("https://api.taqnyat.sa/wa/v2/messages/", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.bearerToken}`,
@@ -390,7 +392,7 @@ export class TaqnyatWhatsAppTransport implements WhatsAppTransport {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json()) as Record<string, unknown>;
+    const payload = (await readJsonBody(response, "taqnyat-whatsapp")) as Record<string, unknown>;
     const messageId = extractMessageId(payload);
     const queued = isQueuedAcceptance(payload);
 
@@ -412,7 +414,7 @@ export class TaqnyatWhatsAppTransport implements WhatsAppTransport {
     to: string | readonly string[],
   ): Promise<{ ok: true; numbers: string[]; provider: "taqnyat-whatsapp" }> {
     const numbers = normalizeNumbers(to);
-    const response = await fetch("https://api.taqnyat.sa/wa/v1/provision/optin/", {
+    const response = await providerFetch("https://api.taqnyat.sa/wa/v1/provision/optin/", {
       method,
       headers: {
         Authorization: `Bearer ${this.bearerToken}`,
@@ -420,7 +422,7 @@ export class TaqnyatWhatsAppTransport implements WhatsAppTransport {
       },
       body: JSON.stringify({ numbers }),
     });
-    const payload = (await response.json()) as Record<string, unknown>;
+    const payload = (await readJsonBody(response, "taqnyat-whatsapp")) as Record<string, unknown>;
     // Success: `{ type: "Opt-In"|"Opt-Out", statuses: [...] }`. Errors use `message` + `reason`.
     const looksOk = typeof payload.type === "string" && payload.statuses !== undefined;
     if (!looksOk) {

@@ -103,4 +103,26 @@ describe("IdempotencyTransport", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("concurrent sends with one key share a single inner send", async () => {
+    let calls = 0;
+    const inner: Transport = {
+      send: async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return successResult;
+      },
+    };
+    const transport = new IdempotencyTransport(inner, {
+      store: new MemoryIdempotencyStore(),
+    });
+    const message = { ...baseOptions, idempotencyKey: "same" };
+    const results = await Promise.all([
+      transport.send(message),
+      transport.send(message),
+      transport.send(message),
+    ]);
+    expect(calls).toBe(1);
+    expect(results).toHaveLength(3);
+  });
 });

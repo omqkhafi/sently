@@ -77,6 +77,8 @@ for (const event of events) {
 | `sently/webhooks/sndr` | Email | `parse` | `verifySignature` |
 | `sently/webhooks/twilio-sms` | SMS | `parse` → `DeliveryEvent[]` | `verifySignature` (`X-Twilio-Signature`) |
 | `sently/webhooks/unifonic` | SMS | `parse` → `DeliveryEvent[]` | — |
+
+Rows marked `—` export `parse` only. Verify those requests with the vendor's signature scheme before you trust the body.
 | `sently/webhooks/whatsapp-cloud` | WhatsApp | `parse` → `DeliveryEvent[]` | `verifySignature` (`X-Hub-Signature-256`) |
 
 The convenience barrel `sently/webhooks` re-exports named helpers such as `parseSndrWebhook`, `parseTwilioSmsWebhook`, and `toDeliveryEvent`.

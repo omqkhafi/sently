@@ -2,6 +2,62 @@
 
 ## [Unreleased]
 
+### ✨ Added
+
+- **SMTP deadlines and STARTTLS policy** — `greetingTimeout`, `socketTimeout`,
+  and optional `sendTimeout` now bound connect, greeting, and each reply.
+  `starttls` is `opportunistic` (default), `required`, or `never`. `clientName`
+  is the EHLO identity. `attachmentBasePath` rejects attachment paths and
+  symlinks outside a directory. HTTP transports default to a 30s deadline
+  (`timeoutMs` on Resend).
+- **`TLS_FAILED` and `TRANSIENT`** — certificate and required-STARTTLS failures
+  use `TLS_FAILED`. SMTP 421/450/451 use `TRANSIENT` with `permanent: false`.
+
+### ♻️ Changed
+
+- **EHLO and Message-ID** — EHLO sends `clientName` (OS hostname by default),
+  not the relay host. The default Message-ID is `<uuid@from-domain>`.
+- **8-bit bodies** — lines longer than 998 bytes, or bodies when the server
+  did not advertise `8BITMIME`, are quoted-printable. `BODY=8BITMIME` is sent
+  only when the message stays 8-bit.
+- **Webhook freshness** — Resend and Mailgun signatures reject timestamps
+  older than 300 seconds. Pass `0` to disable the check.
+- **Retry** — `maxAttempts` must be an integer ≥ 1. Backoff is capped by
+  `maxDelay` (default 60s). `BAD_REQUEST`, `INVALID_CONFIG`, and
+  `SMTP_AUTH_FAILED` are not retried.
+
+### 🐛 Fixed
+
+- **AUTH mechanism selection** — `250 AUTH LOGIN PLAIN` selects LOGIN instead
+  of failing to find a method. `AUTH=LOGIN` is recognized.
+- **SMTP reads** — a reply that arrives immediately after the previous one is
+  kept. Bytes after a STARTTLS 220 are discarded before the handshake.
+- **RCPT and DATA** — a message whose recipients are all rejected does not
+  enter DATA. A failed body write is not sent twice. Non-pool sends on one
+  transport no longer interleave.
+- **Shared send hooks** — concurrent sends keep their own retry and fallback
+  callbacks. `sendBulk` records a success before `onSuccess`. `concurrency`
+  must be a finite integer ≥ 1. Idempotency dedupes in-flight sends and
+  batches. A non-fallback error does not put a provider in cooldown.
+- **HTTP error bodies** — a non-JSON error response throws `SentlyError` with
+  the status code. An empty success body is a provider error. DKIM relaxed
+  canonicalization keeps empty lines in the middle of the body. Attachment
+  filenames that are not quoted-string-safe use RFC 2231.
+- **Fresh `bun test`** — the API surface tests load source when `dist/` has
+  not been built yet.
+
+### 🔒 Security
+
+- **Cleartext mail** — `starttls: "required"` refuses to send when STARTTLS
+  is missing or the handshake fails. `requireTLS` still refuses AUTH on a
+  connection that never upgraded. Implicit TLS does not send an IP address
+  as the TLS server name.
+- **Header injection** — `messageId`, attachment `contentType`, and
+  `contentId` that contain CR, LF, or NUL are rejected.
+- **Error text** — `JSON.stringify` on `SentlyError` and `SMTPError` omits
+  the server reply. Safe fields are `sentlyCode`, `command`, `statusCode`,
+  and `permanent`.
+
 ## [1.2.2] — 2026-08-19
 
 ### ♻️ Changed

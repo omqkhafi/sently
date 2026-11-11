@@ -12,7 +12,7 @@ Works with email, SMS, WhatsApp, and push transports.
 
 ## Configuration
 
-`maxAttempts`, `backoff`, `baseDelay`, `retryOn`, and `onRetry` are optional.
+`maxAttempts` defaults to `3` and must be an integer ≥ 1. `maxDelay` caps backoff at 60 seconds. `BAD_REQUEST`, `INVALID_CONFIG`, and `SMTP_AUTH_FAILED` are not retried.
 
 ## Quick start
 

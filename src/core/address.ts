@@ -1,5 +1,6 @@
 // src/core/address.ts
 import { encodeHeader } from "./base64.js";
+import { SentlyError } from "./errors.js";
 import type { Address, AddressInput } from "./types.js";
 
 /**
@@ -34,15 +35,16 @@ function findForbiddenChar(value: string): number {
  *
  * @param value - The raw, untransformed string to validate.
  * @param label - Field label used in the error message (e.g. "address").
- * @throws {Error} If the value contains any forbidden control character.
+ * @throws {SentlyError} INVALID_CONFIG if the value contains any forbidden control character.
  */
 export function assertSafeAddress(value: string, label = "address"): void {
   const code = findForbiddenChar(value);
   if (code !== -1) {
     const hex = code.toString(16).padStart(2, "0");
-    throw new Error(
+    throw new SentlyError(
       `Email ${label} contains a forbidden control character (0x${hex}). ` +
         "CR, LF, NUL, and other control characters are not allowed.",
+      "INVALID_CONFIG",
     );
   }
 }
@@ -57,7 +59,10 @@ export function assertSafeAddress(value: string, label = "address"): void {
  *
  * @throws {Error} If any address or name contains a forbidden control character.
  */
-export function parseAddresses(input: AddressInput): Address[] {
+export function parseAddresses(input: AddressInput | null | undefined): Address[] {
+  if (input === undefined || input === null) {
+    throw new SentlyError("Missing address", "INVALID_CONFIG");
+  }
   if (Array.isArray(input)) {
     return input.flatMap((item) => parseAddresses(item));
   }

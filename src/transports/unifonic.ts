@@ -23,7 +23,9 @@
  * await sms.send({ to: "+9665xxxxxxxx", body: "Hello" });
  * ```
  */
+
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch } from "../core/http.js";
 import type { SmsOptions, SmsSendResult, SmsTransport } from "../core/sms-types.js";
 import type { VerifyResult } from "../core/types.js";
 
@@ -166,7 +168,7 @@ export class UnifonicTransport implements SmsTransport {
       body.statusCallback = this.statusCallback;
     }
 
-    const response = await fetch(UNIFONIC_SEND_URL, {
+    const response = await providerFetch(UNIFONIC_SEND_URL, {
       method: "POST",
       headers: {
         Accept: "application/json",

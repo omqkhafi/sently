@@ -7,7 +7,17 @@ import {
   toMIMEHeader,
 } from "./address.js";
 import { encodeBase64, encodeHeader, encodeUtf8 } from "./base64.js";
+import { SentlyError } from "./errors.js";
 import type { Address, Attachment, DKIMConfig, Envelope, MailOptions } from "./types.js";
+
+/** Options that change how a MIME body is encoded. */
+export interface BuildMIMEOptions {
+  /**
+   * When false, text is not sent as `8bit` (quoted-printable or `7bit` instead).
+   * Default: true. SMTP passes false when the server did not advertise 8BITMIME.
+   */
+  allow8BitMime?: boolean;
+}
 
 function sanitizeHeaderValue(value: string): string {
   return value.replace(/\r\n?|\n/g, " ").trim();
@@ -27,7 +37,10 @@ function sanitizeAddress(addr: Address): Address {
   // never altered (no CR/LF-to-space repair).
   const address = addr.address.trim();
   if (!isValidEmail(address)) {
-    throw new Error(`Invalid email address: ${JSON.stringify(addr.address)}`);
+    throw new SentlyError(
+      `Invalid email address: ${JSON.stringify(addr.address)}`,
+      "INVALID_CONFIG",
+    );
   }
 
   const sanitized: Address = { address };
@@ -47,6 +60,8 @@ export interface MIMEBuildResult {
   messageId: string;
   /** Size of the raw MIME message in bytes. */
   size: number;
+  /** True when a text part uses 8bit and MAIL FROM may advertise BODY=8BITMIME. */
+  eightBit?: boolean;
 }
 
 const CRLF = "\r\n";
@@ -55,18 +70,29 @@ const CRLF = "\r\n";
  * Build a complete MIME message as a Uint8Array ready for SMTP DATA.
  * When `dkim` is provided, signs the message and prepends the DKIM-Signature header.
  */
-export async function buildMIME(options: MailOptions, dkim?: DKIMConfig): Promise<MIMEBuildResult> {
-  const messageId = options.messageId ?? generateMessageId();
-  const date = (options.date ?? new Date()).toUTCString();
+export async function buildMIME(
+  options: MailOptions,
+  dkim?: DKIMConfig,
+  buildOptions?: BuildMIMEOptions,
+): Promise<MIMEBuildResult> {
+  if (options.to === undefined || options.to === null) {
+    throw new SentlyError("Missing to address", "INVALID_CONFIG");
+  }
+  if (options.messageId !== undefined) {
+    assertHeaderToken(options.messageId, "messageId");
+  }
   const fromAddrs = parseAddresses(options.from);
+  const fromDomain = fromAddrs[0]?.address.split("@")[1] ?? "sently";
+  const messageId = options.messageId ?? generateMessageId(fromDomain);
+  const date = (options.date ?? new Date()).toUTCString();
   const toAddrs = parseAddresses(options.to);
   const ccAddrs = options.cc ? parseAddresses(options.cc) : [];
 
   if (fromAddrs.length === 0) {
-    throw new Error("Missing from address");
+    throw new SentlyError("Missing from address", "INVALID_CONFIG");
   }
   if (toAddrs.length === 0) {
-    throw new Error("Missing to address");
+    throw new SentlyError("Missing to address", "INVALID_CONFIG");
   }
 
   const envelope: Envelope = {
@@ -82,14 +108,15 @@ export async function buildMIME(options: MailOptions, dkim?: DKIMConfig): Promis
   const inlineAttachments = attachments.filter((a) => a.inline || a.contentId);
   const regularAttachments = attachments.filter((a) => !a.inline && !a.contentId);
 
-  let root = buildSimpleBody(options);
+  const allow8BitMime = buildOptions?.allow8BitMime ?? true;
+  let root = buildSimpleBody(options, allow8BitMime);
 
   if (inlineAttachments.length > 0) {
     const boundary = generateBoundary();
     root = {
       contentType: `multipart/related; boundary="${boundary}"`,
       content: assembleMultipart(boundary, [
-        formatNestedPart(buildSimpleBody(options)),
+        formatNestedPart(buildSimpleBody(options, allow8BitMime)),
         ...inlineAttachments.map(formatAttachmentPart),
       ]),
     };
@@ -160,16 +187,23 @@ export async function buildMIME(options: MailOptions, dkim?: DKIMConfig): Promis
     raw = encodeUtf8(signedText);
   }
 
-  return { raw, envelope, messageId, size: raw.length };
+  return {
+    raw,
+    envelope,
+    messageId,
+    size: raw.length,
+    eightBit: root.eightBit === true || rawText.includes("Content-Transfer-Encoding: 8bit"),
+  };
 }
 
 interface SimpleBody {
   contentType: string;
   contentTransferEncoding?: string;
   content: string;
+  eightBit?: boolean;
 }
 
-function buildSimpleBody(options: MailOptions): SimpleBody {
+function buildSimpleBody(options: MailOptions, allow8BitMime: boolean): SimpleBody {
   const hasText = Boolean(options.text);
   const hasHtml = Boolean(options.html);
 
@@ -178,33 +212,75 @@ function buildSimpleBody(options: MailOptions): SimpleBody {
     return {
       contentType: `multipart/alternative; boundary="${boundary}"`,
       content: assembleMultipart(boundary, [
-        formatSimplePart({
-          contentType: "text/plain; charset=utf-8",
-          contentTransferEncoding: "8bit",
-          content: options.text ?? "",
-        }),
-        formatSimplePart({
-          contentType: "text/html; charset=utf-8",
-          contentTransferEncoding: "8bit",
-          content: options.html ?? "",
-        }),
+        formatSimplePart(
+          encodeTextPart("text/plain; charset=utf-8", options.text ?? "", allow8BitMime),
+        ),
+        formatSimplePart(
+          encodeTextPart("text/html; charset=utf-8", options.html ?? "", allow8BitMime),
+        ),
       ]),
     };
   }
 
   if (hasHtml) {
-    return {
-      contentType: "text/html; charset=utf-8",
-      contentTransferEncoding: "8bit",
-      content: options.html ?? "",
-    };
+    return encodeTextPart("text/html; charset=utf-8", options.html ?? "", allow8BitMime);
   }
 
+  return encodeTextPart("text/plain; charset=utf-8", options.text ?? "", allow8BitMime);
+}
+
+function encodeTextPart(contentType: string, content: string, allow8BitMime: boolean): SimpleBody {
+  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
+  const longLine = lines.some((line) => new TextEncoder().encode(line).length > 998);
+  const nonAscii = hasCodePointAbove(normalized, 0x7f);
+  if (longLine || (nonAscii && !allow8BitMime)) {
+    return {
+      contentType,
+      contentTransferEncoding: "quoted-printable",
+      content: encodeQuotedPrintable(normalized),
+      eightBit: false,
+    };
+  }
+  const cte = allow8BitMime ? "8bit" : "7bit";
   return {
-    contentType: "text/plain; charset=utf-8",
-    contentTransferEncoding: "8bit",
-    content: options.text ?? "",
+    contentType,
+    contentTransferEncoding: cte,
+    content: normalized.replace(/\n/g, "\r\n"),
+    eightBit: cte === "8bit",
   };
+}
+
+function encodeQuotedPrintable(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => encodeQuotedPrintableLine(line))
+    .join("\r\n");
+}
+
+function encodeQuotedPrintableLine(line: string): string {
+  const bytes = new TextEncoder().encode(line);
+  let out = "";
+  let column = 0;
+  const push = (token: string): void => {
+    if (column + token.length > 75) {
+      out += "=\r\n";
+      column = 0;
+    }
+    out += token;
+    column += token.length;
+  };
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = bytes[i] ?? 0;
+    const last = i === bytes.length - 1;
+    const whitespace = byte === 0x20 || byte === 0x09;
+    if (byte === 0x3d || byte < 0x20 || byte > 0x7e || (whitespace && last)) {
+      push(`=${byte.toString(16).toUpperCase().padStart(2, "0")}`);
+    } else {
+      push(String.fromCharCode(byte));
+    }
+  }
+  return out;
 }
 
 function formatSimplePart(part: SimpleBody): string {
@@ -225,14 +301,22 @@ function formatNestedPart(part: SimpleBody): string {
 
 function formatAttachmentPart(attachment: Attachment): string {
   if (!attachment.content || typeof attachment.content === "string") {
-    throw new Error(`Attachment "${attachment.filename}" requires Uint8Array content`);
+    throw new SentlyError(
+      `Attachment "${attachment.filename ?? ""}" requires Uint8Array content`,
+      "INVALID_CONFIG",
+    );
+  }
+  if (attachment.contentType !== undefined) {
+    assertHeaderToken(attachment.contentType, "contentType");
+  }
+  if (attachment.contentId !== undefined) {
+    assertHeaderToken(attachment.contentId, "contentId");
   }
 
-  const safeFilename = sanitizeHeaderValue(attachment.filename ?? "");
   const headers = [
     `Content-Type: ${attachment.contentType ?? "application/octet-stream"}`,
     "Content-Transfer-Encoding: base64",
-    `Content-Disposition: ${attachment.inline ? "inline" : "attachment"}; filename="${safeFilename}"`,
+    `Content-Disposition: ${attachment.inline ? "inline" : "attachment"}; ${formatFilenameParameter(attachment.filename ?? "")}`,
   ];
 
   if (attachment.contentId) {
@@ -256,10 +340,48 @@ function assembleMultipart(boundary: string, parts: string[]): string {
   return segments.join(CRLF);
 }
 
-function generateMessageId(): string {
-  const random = crypto.getRandomValues(new Uint8Array(8));
-  const hex = Array.from(random, (b) => b.toString(16).padStart(2, "0")).join("");
-  return `<${Date.now()}.${hex}@sently>`;
+function generateMessageId(domain: string): string {
+  const safeDomain = domain.replace(/[^A-Za-z0-9.-]/g, "") || "sently";
+  return `<${crypto.randomUUID()}@${safeDomain}>`;
+}
+
+function hasHeaderBreak(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code === 0 || code === 10 || code === 13) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasCodePointAbove(value: string, max: number): boolean {
+  for (let i = 0; i < value.length; i++) {
+    if (value.charCodeAt(i) > max) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function assertHeaderToken(value: string, label: string): void {
+  if (hasHeaderBreak(value)) {
+    throw new SentlyError(
+      `${label} contains a forbidden control character. CR, LF, and NUL are not allowed.`,
+      "INVALID_CONFIG",
+    );
+  }
+}
+
+function formatFilenameParameter(filename: string): string {
+  if (/[^\x20-\x7E]/.test(filename) || /["\\;]/.test(filename)) {
+    const encoded = encodeURIComponent(filename).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
+    return `filename*=UTF-8''${encoded}`;
+  }
+  return `filename="${filename}"`;
 }
 
 function generateBoundary(): string {

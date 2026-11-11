@@ -5,8 +5,8 @@
  *
  * Usage: bun run tests/integration/smtp.integration.ts
  */
-import { createMailer, createSMTPMailer } from "../../dist/index.js";
-import { MailpitTransport } from "../../dist/transports/mailpit.js";
+import { createMailer, createSMTPMailer } from "../../src/index.js";
+import { MailpitTransport } from "../../src/transports/mailpit.js";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {

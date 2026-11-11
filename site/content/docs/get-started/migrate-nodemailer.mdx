@@ -84,9 +84,11 @@ console.log(result.messageId, result.accepted, result.rejected);
 | `pool` | `boolean` | `false` | Connection pooling |
 | `requireTLS` | `boolean` | `true` when `auth` is set | Refuse AUTH on a cleartext connection |
 | `tls` | `TLSOptions` | — | `rejectUnauthorized`, `servername`, `minVersion` |
-| `connectionTimeout` | `number` | — | Socket connect timeout (ms) |
-| `greetingTimeout` | `number` | — | Wait for SMTP greeting (ms) |
-| `socketTimeout` | `number` | — | Idle socket timeout (ms) |
+| `connectionTimeout` | `number` | `30000` | Socket connect timeout (ms). `0` disables |
+| `greetingTimeout` | `number` | `connectionTimeout`, else `30000` | Wait for the SMTP greeting (ms). `0` disables |
+| `socketTimeout` | `number` | `connectionTimeout`, else `60000` | Deadline for each reply and write (ms). `0` disables |
+| `starttls` | `"required" \| "opportunistic" \| "never"` | `opportunistic` | Upgrade policy on a cleartext connection |
+| `clientName` | `string` | OS hostname | Name sent in EHLO |
 
 ## Switch to an HTTP provider later
 

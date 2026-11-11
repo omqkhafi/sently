@@ -20,6 +20,8 @@ describe("SentlyError hierarchy", () => {
     expect(smtpCodeToSentlyCode(550, "RCPT TO")).toBe("PROVIDER_ERROR");
     expect(smtpCodeToSentlyCode(554, "DATA")).toBe("PROVIDER_ERROR");
     expect(smtpCodeToSentlyCode(0, "CONNECT")).toBe("CONNECTION_FAILED");
+    expect(smtpCodeToSentlyCode(450, "MAIL FROM")).toBe("TRANSIENT");
+    expect(smtpCodeToSentlyCode(421, "MAIL FROM")).toBe("TRANSIENT");
   });
 
   test("ResendError instanceof ResendError and SentlyError with mapped code", () => {

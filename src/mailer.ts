@@ -30,6 +30,7 @@ import { invokeHook } from "./core/hooks.js";
 import { runPlugins } from "./core/plugin.js";
 import { getProviderLabel } from "./core/provider-label.js";
 import { RateLimiter } from "./core/rate-limiter.js";
+import { runWithSendHooks, type SendHookSlot } from "./core/send-context.js";
 import type {
   BulkSendOptions,
   BulkSendResult,
@@ -89,26 +90,28 @@ export class MailerImpl implements Mailer {
 
   async send(options: MailOptions): Promise<SendResult> {
     const processed = await runPlugins(options, this.plugins);
+    if (processed.to === undefined || processed.to === null) {
+      throw new SentlyError("Missing to address", "INVALID_CONFIG");
+    }
     const ctx = buildHookContext(processed, this.transport);
 
     await invokeHook(this.hooks?.onSend, ctx);
 
+    const slot: SendHookSlot = {};
     if (this.hooks?.onRetry !== undefined && isRetryHookTransport(this.transport)) {
-      this.transport.setMailerOnRetry((attempt, error) => {
+      slot.onRetry = (attempt, error) => {
         void invokeHook(this.hooks?.onRetry, ctx, attempt, error);
-      });
+      };
     }
-
     if (this.hooks?.onFallback !== undefined && isFallbackHookTransport(this.transport)) {
-      this.transport.setMailerOnFallback((failedProvider, nextProvider, error) => {
-        void invokeHook(this.hooks?.onFallback, ctx, failedProvider, nextProvider, error);
-      });
+      slot.onFallback = (failedProvider, nextProvider, error) =>
+        invokeHook(this.hooks?.onFallback, ctx, failedProvider, nextProvider, error);
     }
 
     const start = performance.now();
 
     try {
-      const result = await this.transport.send(processed);
+      const result = await runWithSendHooks(slot, () => this.transport.send(processed));
       const successCtx: MailerHookContext = {
         ...ctx,
         messageId: result.messageId,
@@ -118,13 +121,6 @@ export class MailerImpl implements Mailer {
     } catch (error) {
       await invokeHook(this.hooks?.onError, ctx, error, performance.now() - start);
       throw error;
-    } finally {
-      if (isRetryHookTransport(this.transport)) {
-        this.transport.setMailerOnRetry(undefined);
-      }
-      if (isFallbackHookTransport(this.transport)) {
-        this.transport.setMailerOnFallback(undefined);
-      }
     }
   }
 
@@ -136,6 +132,7 @@ export class MailerImpl implements Mailer {
     if (messages.length === 0) {
       return { total: 0, sent: 0, failed: 0, results: [] };
     }
+    assertBulkConcurrency(options?.concurrency);
 
     const results: BulkSendResult["results"] = new Array(messages.length);
     const stopOnError = options?.stopOnError ?? false;
@@ -159,7 +156,14 @@ export class MailerImpl implements Mailer {
           durationMs,
         );
       }
-      options?.onSuccess?.(message, index, result);
+      try {
+        options?.onSuccess?.(message, index, result);
+      } catch (callbackError) {
+        console.warn(
+          "[sently] onSuccess threw; the send is still recorded as sent:",
+          callbackError,
+        );
+      }
     };
 
     const recordFailure = async (
@@ -293,7 +297,14 @@ export class MailerImpl implements Mailer {
             void this.send(entry.message)
               .then((result) => {
                 results[entry.index] = { status: "sent", result };
-                options?.onSuccess?.(entry.message, entry.index, result);
+                try {
+                  options?.onSuccess?.(entry.message, entry.index, result);
+                } catch (callbackError) {
+                  console.warn(
+                    "[sently] onSuccess threw; the send is still recorded as sent:",
+                    callbackError,
+                  );
+                }
               })
               .catch((error: unknown) => {
                 results[entry.index] = { status: "failed", error };
@@ -344,7 +355,14 @@ export class MailerImpl implements Mailer {
           void this.send(message)
             .then((result) => {
               results[index] = { status: "sent", result };
-              options?.onSuccess?.(message, index, result);
+              try {
+                options?.onSuccess?.(message, index, result);
+              } catch (callbackError) {
+                console.warn(
+                  "[sently] onSuccess threw; the send is still recorded as sent:",
+                  callbackError,
+                );
+              }
             })
             .catch((error: unknown) => {
               results[index] = { status: "failed", error };
@@ -399,5 +417,17 @@ export class MailerImpl implements Mailer {
       return this.transport.close();
     }
     return Promise.resolve();
+  }
+}
+
+function assertBulkConcurrency(concurrency: number | undefined): void {
+  if (concurrency === undefined) {
+    return;
+  }
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new SentlyError(
+      "concurrency must be a finite integer greater than or equal to 1",
+      "INVALID_CONFIG",
+    );
   }
 }

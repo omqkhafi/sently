@@ -14,6 +14,7 @@
  * });
  * ```
  */
+import { tlsServerName } from "../core/tls-name.js";
 import type { SocketAdapter, TLSOptions } from "../core/types.js";
 
 declare const Deno: {
@@ -57,6 +58,8 @@ export class DenoAdapter implements SocketAdapter {
   private _connected = false;
   /** TLS options for direct TLS and STARTTLS upgrades. */
   private readonly tlsOptions: TLSOptions;
+  /** Remote host from the latest connect, used as the default SNI name. */
+  private remoteHost = "";
 
   /** Creates a Deno socket adapter (requires the Deno runtime). */
   constructor(options: DenoAdapterOptions = {}) {
@@ -79,11 +82,13 @@ export class DenoAdapter implements SocketAdapter {
 
   /** Opens a TCP or TLS connection to the given host and port. */
   async connect(host: string, port: number): Promise<void> {
+    this.remoteHost = host;
     if (this._secure) {
+      const servername = tlsServerName(host, this.tlsOptions.servername);
       this.conn = await Deno.connectTls({
         hostname: host,
         port,
-        ...(this.tlsOptions.servername ? { servername: this.tlsOptions.servername } : {}),
+        ...(servername !== undefined ? { servername } : {}),
       });
     } else {
       this.conn = await Deno.connect({ hostname: host, port });
@@ -98,8 +103,9 @@ export class DenoAdapter implements SocketAdapter {
     }
 
     const merged = { ...this.tlsOptions, ...options };
+    const servername = tlsServerName(this.remoteHost, merged.servername);
     this.conn = await Deno.startTls(this.conn as DenoTcpConn, {
-      ...(merged.servername ? { hostname: merged.servername } : {}),
+      ...(servername !== undefined ? { hostname: servername } : {}),
     });
     this._secure = true;
   }

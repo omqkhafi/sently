@@ -15,7 +15,9 @@
  * const token = await client.getAccessToken();
  * ```
  */
+
 import { encodeBase64, encodeUtf8 } from "../core/base64.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { OAuth2Config } from "../core/types.js";
 
 /** Default Google OAuth2 token endpoint. */
@@ -97,7 +99,7 @@ export class OAuth2Client {
       grant_type: "refresh_token",
     });
 
-    const response = await fetch(tokenUrl, {
+    const response = await providerFetch(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
@@ -108,7 +110,7 @@ export class OAuth2Client {
       throw new Error(`OAuth2 token refresh failed (${response.status}): ${text}`);
     }
 
-    const data = (await response.json()) as TokenResponse;
+    const data = (await readJsonBody(response, "oauth2")) as TokenResponse;
     this.cachedToken = data.access_token;
     this.expiresAt = Date.now() + data.expires_in * 1000;
     return data.access_token;

@@ -38,6 +38,7 @@ import type {
   PushTransport,
 } from "./core/push-types.js";
 import { isFcmPushOptions, isWebPushOptions } from "./core/push-types.js";
+import { runWithSendHooks, type SendHookSlot } from "./core/send-context.js";
 import type { VerifyResult } from "./core/types.js";
 
 /** Configuration for {@link createPushSender}. */
@@ -96,22 +97,21 @@ export function createPushSender(config: PushSenderConfig): PushSender {
 
       await invokeHook(hooks?.onSend, ctx);
 
+      const slot: SendHookSlot = {};
       if (hooks?.onRetry !== undefined && isRetryHookTransport(transport)) {
-        transport.setMailerOnRetry((attempt, error) => {
+        slot.onRetry = (attempt, error) => {
           void invokeHook(hooks.onRetry, ctx, attempt, error);
-        });
+        };
       }
-
       if (hooks?.onFallback !== undefined && isFallbackHookTransport(transport)) {
-        transport.setMailerOnFallback((failedProvider, nextProvider, error) => {
-          void invokeHook(hooks.onFallback, ctx, failedProvider, nextProvider, error);
-        });
+        slot.onFallback = (failedProvider, nextProvider, error) =>
+          invokeHook(hooks.onFallback, ctx, failedProvider, nextProvider, error);
       }
 
       const start = performance.now();
 
       try {
-        const result = await transport.send(processed);
+        const result = await runWithSendHooks(slot, () => transport.send(processed));
         const successCtx: PushHookContext = {
           ...ctx,
           messageId: result.messageId,
@@ -121,13 +121,6 @@ export function createPushSender(config: PushSenderConfig): PushSender {
       } catch (error) {
         await invokeHook(hooks?.onError, ctx, error, performance.now() - start);
         throw error;
-      } finally {
-        if (isRetryHookTransport(transport)) {
-          transport.setMailerOnRetry(undefined);
-        }
-        if (isFallbackHookTransport(transport)) {
-          transport.setMailerOnFallback(undefined);
-        }
       }
     },
 

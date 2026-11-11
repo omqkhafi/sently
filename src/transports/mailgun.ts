@@ -16,9 +16,11 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses, toMIMEHeader } from "../core/address.js";
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type {
   MailgunConfig,
   MailOptions,
@@ -109,7 +111,7 @@ export class MailgunTransport implements Transport {
     }
 
     const auth = encodeBase64(`api:${this.apiKey}`).replace(/\r\n/g, "");
-    const response = await fetch(`${this.baseUrl}/v3/${this.domain}/messages`, {
+    const response = await providerFetch(`${this.baseUrl}/v3/${this.domain}/messages`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${auth}`,
@@ -117,7 +119,7 @@ export class MailgunTransport implements Transport {
       body: form,
     });
 
-    const payload = (await response.json()) as { id?: string; message?: string };
+    const payload = (await readJsonBody(response, "mailgun")) as { id?: string; message?: string };
 
     if (!response.ok) {
       throw new MailgunError(payload.message ?? "Mailgun API error", response.status, payload);
@@ -140,7 +142,7 @@ export class MailgunTransport implements Transport {
   async verify(): Promise<VerifyResult> {
     try {
       const auth = encodeBase64(`api:${this.apiKey}`).replace(/\r\n/g, "");
-      const response = await fetch(`${this.baseUrl}/v3/domains`, {
+      const response = await providerFetch(`${this.baseUrl}/v3/domains`, {
         headers: {
           Authorization: `Basic ${auth}`,
         },

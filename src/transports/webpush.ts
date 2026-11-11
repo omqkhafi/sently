@@ -22,9 +22,11 @@
  * });
  * ```
  */
+
 import { isValidEmail } from "../core/address.js";
 import { decodeBase64Url, encodeBase64Url, encodeUtf8 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch } from "../core/http.js";
 import { assertSafePushEndpoint } from "../core/push-endpoint.js";
 import type {
   PushOptions,
@@ -499,7 +501,7 @@ export class WebPushTransport implements PushTransport {
       headers.Topic = options.topic;
     }
 
-    const response = await fetch(options.subscription.endpoint, {
+    const response = await providerFetch(options.subscription.endpoint, {
       method: "POST",
       redirect: "manual",
       headers,

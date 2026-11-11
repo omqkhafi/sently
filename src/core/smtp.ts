@@ -13,7 +13,7 @@ export type SMTPCommand =
   | { type: "AUTH_CRAM_MD5_INIT" }
   | { type: "AUTH_CRAM_MD5_RESPONSE"; response: string }
   | { type: "AUTH_XOAUTH2"; xoauth2String: string }
-  | { type: "MAIL_FROM"; address: string }
+  | { type: "MAIL_FROM"; address: string; eightBit?: boolean }
   | { type: "RCPT_TO"; address: string }
   | { type: "DATA" }
   | { type: "DATA_BODY"; content: Uint8Array }
@@ -44,9 +44,29 @@ export class SMTPError extends SentlyError {
     public readonly command: string,
     public readonly response: string,
   ) {
-    super(message, smtpCodeToSentlyCode(smtpCode, command), { provider: "smtp" });
+    const permanent = smtpCode >= 500 ? true : smtpCode >= 400 ? false : undefined;
+    super(message, smtpCodeToSentlyCode(smtpCode, command), {
+      provider: "smtp",
+      ...(permanent !== undefined ? { permanent } : {}),
+    });
     this.name = "SMTPError";
     this.code = smtpCode;
+  }
+
+  /**
+   * Safe-to-log fields. Server text stays on {@link response} for callers that
+   * read it explicitly, and is omitted from `JSON.stringify`.
+   */
+  override toJSON(): Record<string, unknown> {
+    return {
+      name: this.name,
+      message: this.message,
+      sentlyCode: this.sentlyCode,
+      code: this.code,
+      command: this.command,
+      ...(this.provider !== undefined ? { provider: this.provider } : {}),
+      ...(this.permanent !== undefined ? { permanent: this.permanent } : {}),
+    };
   }
 }
 
@@ -83,7 +103,7 @@ export function encodeCommand(cmd: SMTPCommand): Uint8Array {
       if (/[\r\n]/.test(cmd.address)) {
         throw new SMTPError(`Invalid address: contains CRLF`, 0, "MAIL FROM", cmd.address);
       }
-      line = `MAIL FROM:<${cmd.address}>`;
+      line = `MAIL FROM:<${cmd.address}>${cmd.eightBit ? " BODY=8BITMIME" : ""}`;
       break;
     case "RCPT_TO":
       if (/[\r\n]/.test(cmd.address)) {
@@ -115,8 +135,10 @@ export function encodeCommand(cmd: SMTPCommand): Uint8Array {
  */
 export function parseResponse(data: Uint8Array): SMTPResponse {
   const text = new TextDecoder().decode(data).trim();
-  const lines = text.split(/\r?\n/);
-  const lastLine = lines[lines.length - 1] ?? "";
+  const lines = text.split(/\r?\n/).filter((line) => line.length > 0);
+  const finalIndex = lines.findIndex((line) => /^\d{3} /.test(line));
+  const replyLines = finalIndex === -1 ? lines : lines.slice(0, finalIndex + 1);
+  const lastLine = replyLines[replyLines.length - 1] ?? "";
   const match = lastLine.match(/^(\d{3})([\s-])(.*)$/);
 
   if (!match) {
@@ -124,7 +146,7 @@ export function parseResponse(data: Uint8Array): SMTPResponse {
   }
 
   const code = Number.parseInt(match[1] ?? "0", 10);
-  const message = lines.map((l) => l.replace(/^\d{3}[\s-]/, "")).join(" ");
+  const message = replyLines.map((l) => l.replace(/^\d{3}[\s-]/, "")).join(" ");
 
   return {
     code,
@@ -166,27 +188,74 @@ export function accumulateResponse(chunks: Uint8Array[]): Uint8Array | null {
   return null;
 }
 
+const AUTH_MECHANISMS = ["XOAUTH2", "CRAM-MD5", "LOGIN", "PLAIN"] as const;
+
 /**
  * Select the best AUTH method from EHLO capability lines.
+ * Mechanisms may be space-separated (`AUTH LOGIN PLAIN`) or `=`-separated
+ * (`AUTH=LOGIN`), including when a parser has already split them into tokens.
  * Priority: XOAUTH2 > CRAM-MD5 > LOGIN > PLAIN.
  */
 export function selectAuthMethod(
   capabilities: string[],
 ): "LOGIN" | "PLAIN" | "CRAM-MD5" | "OAUTH2" {
-  const upper = capabilities.map((c) => c.toUpperCase());
-  if (upper.some((c) => c.includes("AUTH") && c.includes("XOAUTH2"))) {
+  const tokens = capabilities.flatMap((capability) =>
+    capability
+      .toUpperCase()
+      .split(/[\s=]+/)
+      .filter((token) => token.length > 0),
+  );
+  const offered = new Set<string>();
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i] !== "AUTH") {
+      continue;
+    }
+    for (let j = i + 1; j < tokens.length; j++) {
+      const token = tokens[j] ?? "";
+      if (!AUTH_MECHANISMS.includes(token as (typeof AUTH_MECHANISMS)[number])) {
+        break;
+      }
+      offered.add(token);
+    }
+  }
+  if (offered.has("XOAUTH2")) {
     return "OAUTH2";
   }
-  if (upper.some((c) => c.includes("AUTH") && c.includes("CRAM-MD5"))) {
+  if (offered.has("CRAM-MD5")) {
     return "CRAM-MD5";
   }
-  if (upper.some((c) => c.includes("AUTH") && c.includes("LOGIN"))) {
+  if (offered.has("LOGIN")) {
     return "LOGIN";
   }
-  if (upper.some((c) => c.includes("AUTH") && c.includes("PLAIN"))) {
+  if (offered.has("PLAIN")) {
     return "PLAIN";
   }
   throw new SMTPError("No supported AUTH method", 0, "EHLO", capabilities.join(" "));
+}
+
+/**
+ * Split the first complete SMTP reply from a byte buffer.
+ * Continuation lines (`250-`) stay with that reply. Bytes after the first
+ * final line (`250 `) are returned as `rest` for the next read.
+ *
+ * @param data - Bytes received so far
+ * @returns The reply and leftover bytes, or null when the reply is incomplete
+ */
+export function splitSmtpReply(data: Uint8Array): { reply: Uint8Array; rest: Uint8Array } | null {
+  let lineStart = 0;
+  for (let i = 0; i < data.length; i++) {
+    if (data[i] !== 0x0a) {
+      continue;
+    }
+    const lineEnd = i > 0 && data[i - 1] === 0x0d ? i - 1 : i;
+    const line = new TextDecoder().decode(data.subarray(lineStart, lineEnd));
+    if (/^\d{3} /.test(line)) {
+      const end = i + 1;
+      return { reply: data.slice(0, end), rest: data.slice(end) };
+    }
+    lineStart = i + 1;
+  }
+  return null;
 }
 
 /**
@@ -219,7 +288,8 @@ export function assertResponse(
 
 function applyDotStuffing(content: Uint8Array): string {
   const text = new TextDecoder().decode(content);
-  const lines = text.split(/\r?\n/);
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
   const stuffed = lines.map((line) => (line.startsWith(".") ? `.${line}` : line));
   return `${stuffed.join("\r\n")}\r\n.\r\n`;
 }

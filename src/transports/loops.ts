@@ -27,8 +27,10 @@
  * });
  * ```
  */
+
 import { extractEmails } from "../core/address.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type { MailOptions, SendResult, Transport, VerifyResult } from "../core/types.js";
 
 /** Loops HTTP API configuration. */
@@ -101,7 +103,7 @@ export class LoopsTransport implements Transport {
       dataVariables: options.data ?? {},
     };
 
-    const response = await fetch("https://app.loops.so/api/v1/transactional", {
+    const response = await providerFetch("https://app.loops.so/api/v1/transactional", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -110,7 +112,7 @@ export class LoopsTransport implements Transport {
       body: JSON.stringify(body),
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "loops")) as {
       success?: boolean;
       id?: string;
       message?: string;

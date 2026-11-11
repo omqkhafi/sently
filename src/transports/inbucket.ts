@@ -26,7 +26,9 @@
  * console.log(inbox[0]?.subject);
  * ```
  */
+
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import type {
   MailOptions,
   SendResult,
@@ -360,7 +362,7 @@ export class InbucketTransport implements Transport {
   private async apiFetch(method: string, path: string, body?: unknown): Promise<Response> {
     let response: Response;
     try {
-      response = await fetch(`${this.apiUrl}${path}`, {
+      response = await providerFetch(`${this.apiUrl}${path}`, {
         method,
         headers: this.apiHeaders(),
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -387,7 +389,7 @@ export class InbucketTransport implements Transport {
 
   private async apiJson<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await this.apiFetch(method, path, body);
-    return (await response.json()) as T;
+    return (await readJsonBody(response, "inbucket")) as T;
   }
 
   private async apiOk(method: string, path: string, body?: unknown): Promise<void> {

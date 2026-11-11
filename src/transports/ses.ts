@@ -18,9 +18,11 @@
  * });
  * ```
  */
+
 import { extractEmails, parseAddresses, toMIMEHeader } from "../core/address.js";
 import { encodeBase64 } from "../core/base64.js";
 import { httpStatusToSentlyCode, SentlyError } from "../core/errors.js";
+import { providerFetch, readJsonBody } from "../core/http.js";
 import { buildMIME } from "../core/mime.js";
 import { signRequest } from "../core/sigv4.js";
 import type { MailOptions, SESConfig, SendResult, Transport, VerifyResult } from "../core/types.js";
@@ -133,13 +135,13 @@ export class SESTransport implements Transport {
       },
     });
 
-    const response = await fetch(url, {
+    const response = await providerFetch(url, {
       method: "POST",
       headers: signed.headers,
       body,
     });
 
-    const payload = (await response.json()) as {
+    const payload = (await readJsonBody(response, "ses")) as {
       MessageId?: string;
       message?: string;
       Code?: string;
@@ -185,7 +187,7 @@ export class SESTransport implements Transport {
         },
       });
 
-      const response = await fetch(url, {
+      const response = await providerFetch(url, {
         method: "GET",
         headers: signed.headers,
       });
