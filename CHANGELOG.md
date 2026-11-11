@@ -75,7 +75,8 @@
   reject with `TIMEOUT`, including when the adapter timer wins and close
   runs on the plaintext socket. The same stall rejects a pooled `send()`.
   The deadline is `socketTimeout` (or `connectionTimeout` on the Node and
-  Bun adapters). `sendTimeout` still bounds the whole send.
+  Bun adapters). `sendTimeout` bounds a direct or pooled send even when
+  those other deadlines are off.
 
 ## [1.2.2] — 2026-08-19
 

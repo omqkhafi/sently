@@ -19,6 +19,7 @@
  */
 import { OAuth2Client } from "../auth/oauth2.js";
 import { parseAddresses } from "../core/address.js";
+import { withDeadline } from "../core/deadline.js";
 import { SentlyError } from "../core/errors.js";
 import { buildMIME, type MIMEBuildResult } from "../core/mime.js";
 import type { SMTPResponse } from "../core/smtp.js";
@@ -613,35 +614,6 @@ function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
   combined.set(left, 0);
   combined.set(right, left.length);
   return combined;
-}
-
-async function withDeadline<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-  onTimeout: () => Promise<void> | void,
-): Promise<T> {
-  if (timeoutMs <= 0) {
-    return promise;
-  }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      reject(new SentlyError(message, "TIMEOUT", { provider: "smtp" }));
-    }, timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeout]);
-  } catch (error) {
-    if (error instanceof SentlyError && error.sentlyCode === "TIMEOUT") {
-      await Promise.resolve(onTimeout()).catch(() => undefined);
-    }
-    throw error;
-  } finally {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
-  }
 }
 
 async function defaultClientName(): Promise<string> {

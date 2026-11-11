@@ -24,6 +24,7 @@
  * ```
  */
 
+import { withDeadline } from "../core/deadline.js";
 import { RateLimiter } from "../core/rate-limiter.js";
 import type {
   MailOptions,
@@ -179,16 +180,20 @@ export class SMTPPool implements Transport {
           break;
         }
         try {
-          const result = await idleConn.send(entry.options);
+          const result = await this.runBounded(
+            () => idleConn.send(entry.options),
+            () => idleConn.destroy(),
+          );
           entry.resolve(result);
           if (!idleConn.usable) {
             await idleConn.close();
             this.removeConnection(idleConn);
           }
         } catch (err) {
-          entry.reject(err);
+          await idleConn.destroy().catch(() => undefined);
           await idleConn.close().catch(() => undefined);
           this.removeConnection(idleConn);
+          entry.reject(err);
         }
         continue;
       }
@@ -199,20 +204,38 @@ export class SMTPPool implements Transport {
           break;
         }
         let conn: PooledConnection | undefined;
+        let adapter: SocketAdapter | undefined;
         try {
-          conn = await this.spawnConnection();
-          const result = await conn.send(entry.options);
+          const result = await this.runBounded(
+            async () => {
+              conn = await this.spawnConnection((created) => {
+                adapter = created;
+              });
+              return conn.send(entry.options);
+            },
+            async () => {
+              if (conn) {
+                await conn.destroy();
+                return;
+              }
+              await adapter?.destroy?.();
+            },
+          );
           entry.resolve(result);
-          if (!conn.usable) {
+          if (conn && !conn.usable) {
             await conn.close();
             this.removeConnection(conn);
           }
         } catch (err) {
-          entry.reject(err);
           if (conn) {
+            await conn.destroy().catch(() => undefined);
             await conn.close().catch(() => undefined);
             this.removeConnection(conn);
+          } else if (adapter) {
+            await adapter.destroy?.().catch(() => undefined);
+            await adapter.close().catch(() => undefined);
           }
+          entry.reject(err);
         }
         continue;
       }
@@ -221,14 +244,29 @@ export class SMTPPool implements Transport {
     }
   }
 
+  /**
+   * Bound one pooled send when `sendTimeout` is set.
+   * `0` leaves the other SMTP deadlines in charge.
+   */
+  private runBounded<T>(work: () => Promise<T>, onTimeout: () => Promise<void> | void): Promise<T> {
+    const sendTimeout = this.config.sendTimeout;
+    if (sendTimeout === undefined || sendTimeout <= 0) {
+      return work();
+    }
+    return withDeadline(work(), sendTimeout, "SMTP send timed out", onTimeout);
+  }
+
   /** Opens a new authenticated pooled SMTP connection. */
-  private async spawnConnection(): Promise<PooledConnection> {
+  private async spawnConnection(
+    onAdapter?: (adapter: SocketAdapter) => void,
+  ): Promise<PooledConnection> {
     const resolved = resolveSMTPConfig(this.config);
     const conn = await createPooledConnection({
       config: this.config,
       maxMessages: this.maxMessages,
       connectHost: resolved.host,
       createAdapter: this.createAdapterFn,
+      ...(onAdapter !== undefined ? { onAdapter } : {}),
     });
     this.connections.push(conn);
     return conn;

@@ -322,7 +322,8 @@ export interface SMTPConfig extends PoolConfig {
    */
   socketTimeout?: number;
   /**
-   * Optional deadline for the whole SMTP send in milliseconds.
+   * Optional deadline for one SMTP send in milliseconds, including a pooled send.
+   * It starts when that send begins, not while it waits for a free connection.
    * `0` disables. Command deadlines still apply when this is omitted.
    */
   sendTimeout?: number;

@@ -1,5 +1,5 @@
 import { buildMIME } from "../core/mime.js";
-import type { MailOptions, SendResult, SMTPConfig } from "../core/types.js";
+import type { MailOptions, SendResult, SMTPConfig, SocketAdapter } from "../core/types.js";
 import { resolveAttachments } from "../transports/resolve-attachments.js";
 import {
   closeSMTPSession,
@@ -20,6 +20,8 @@ export interface PooledConnection {
   readonly usable: boolean;
   /** Close the connection and end the SMTP session. */
   close(): Promise<void>;
+  /** Abort the socket so an in-flight handshake or send settles. */
+  destroy(): Promise<void>;
 }
 
 /** Options for creating a pooled connection. */
@@ -31,7 +33,12 @@ export interface PooledConnectionOptions {
   /** Hostname to connect to (may differ from config.host for direct MX). */
   connectHost: string;
   /** Factory that creates the socket adapter for this connection. */
-  createAdapter: () => Promise<import("../core/types.js").SocketAdapter>;
+  createAdapter: () => Promise<SocketAdapter>;
+  /**
+   * Called with the adapter as soon as it exists, before connect.
+   * A send deadline uses this to abort a handshake that has not returned a connection yet.
+   */
+  onAdapter?: (adapter: SocketAdapter) => void;
 }
 
 /**
@@ -42,6 +49,7 @@ export async function createPooledConnection(
 ): Promise<PooledConnection> {
   const config = resolveSMTPConfig(options.config);
   const adapter = await options.createAdapter();
+  options.onAdapter?.(adapter);
   let capabilities: string[];
   try {
     await adapter.connect(options.connectHost, config.port);
@@ -101,6 +109,10 @@ export async function createPooledConnection(
     async close(): Promise<void> {
       await sendChain;
       await closeSMTPSession(adapter);
+    },
+
+    async destroy(): Promise<void> {
+      await adapter.destroy?.();
     },
   };
 }

@@ -8,8 +8,10 @@ import tls from "node:tls";
 import { SentlyError } from "../../src/core/errors.js";
 import { buildMIME } from "../../src/core/mime.js";
 import type { MailOptions, SendResult, SocketAdapter, Transport } from "../../src/core/types.js";
+import { createDefaultAdapter } from "../../src/detect.js";
 import { createMailer } from "../../src/mailer.js";
 import { IdempotencyTransport, MemoryIdempotencyStore } from "../../src/idempotency.js";
+import { SMTPPool } from "../../src/pool/pool.js";
 import { createSMTPMailer } from "../../src/smtp-mailer.js";
 import { RetryTransport } from "../../src/transports/retry.js";
 import { verifySignature } from "../../src/webhooks/resend.js";
@@ -434,6 +436,111 @@ describe("TLS SNI", () => {
       await new Promise<void>((done) => server.close(() => done()));
     }
   });
+
+  test(
+    "pooled sendTimeout rejects a stalled handshake and the next send works",
+    async () => {
+      let stall = true;
+      const sockets: Array<net.Socket | tls.TLSSocket> = [];
+      const server = net.createServer((socket) => {
+        sockets.push(socket);
+        socket.write("220 ready\r\n");
+        let stalled = false;
+        socket.on("data", (chunk) => {
+          if (stalled) {
+            return;
+          }
+          const text = chunk.toString("utf8");
+          if (text.startsWith("EHLO")) {
+            socket.write("250-localhost\r\n250 STARTTLS\r\n");
+            return;
+          }
+          if (!text.startsWith("STARTTLS")) {
+            return;
+          }
+          socket.write("220 ready\r\n");
+          if (stall) {
+            stalled = true;
+            return;
+          }
+          socket.removeAllListeners("data");
+          const secure = new tls.TLSSocket(socket, { isServer: true, key, cert });
+          sockets.push(secure);
+          secure.on("secure", () => {
+            let pending = "";
+            secure.on("data", (secureChunk) => {
+              pending += secureChunk.toString("utf8");
+              const lines = pending.split("\r\n");
+              pending = lines.pop() ?? "";
+              for (const line of lines) {
+                if (line.startsWith("EHLO") || line.startsWith("HELO")) {
+                  secure.write("250 localhost\r\n");
+                } else if (line.startsWith("MAIL") || line.startsWith("RCPT")) {
+                  secure.write("250 OK\r\n");
+                } else if (line === "DATA") {
+                  secure.write("354 Go\r\n");
+                } else if (line === ".") {
+                  secure.write("250 Queued\r\n");
+                } else if (line.startsWith("QUIT")) {
+                  secure.write("221 Bye\r\n");
+                }
+              }
+            });
+          });
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+      const address = server.address();
+      const port = address && typeof address !== "string" ? address.port : 0;
+      const pool = new SMTPPool(
+        {
+          host: "127.0.0.1",
+          port,
+          secure: false,
+          starttls: "required",
+          connectionTimeout: 0,
+          socketTimeout: 0,
+          sendTimeout: 500,
+          tls: { rejectUnauthorized: false },
+        },
+        {
+          createAdapter: () =>
+            createDefaultAdapter({
+              connectionTimeout: 0,
+              tls: { rejectUnauthorized: false },
+            }),
+        },
+      );
+      try {
+        const started = Date.now();
+        const outcome = await Promise.race([
+          pool.send(message).then(
+            () => "resolved" as const,
+            (error: unknown) => error,
+          ),
+          new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 1_500)),
+        ]);
+        if (outcome === "hung") {
+          for (const socket of sockets) {
+            socket.destroy();
+          }
+        }
+        expect(outcome).toMatchObject({ sentlyCode: "TIMEOUT" });
+        expect(Date.now() - started).toBeLessThan(2_000);
+        expect(pool.connectionCount).toBe(0);
+        stall = false;
+        const result = await pool.send(message);
+        expect(result.accepted).toEqual(["b@example.com"]);
+      } finally {
+        await pool.close();
+        for (const socket of sockets) {
+          socket.destroy();
+        }
+        await new Promise<void>((done) => server.close(() => done()));
+      }
+    },
+    5_000,
+  );
 });
 
 describe("library leftovers", () => {
