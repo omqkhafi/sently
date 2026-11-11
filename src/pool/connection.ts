@@ -42,8 +42,14 @@ export async function createPooledConnection(
 ): Promise<PooledConnection> {
   const config = resolveSMTPConfig(options.config);
   const adapter = await options.createAdapter();
-  await adapter.connect(options.connectHost, config.port);
-  const capabilities = await openSMTPSession(adapter, config);
+  let capabilities: string[];
+  try {
+    await adapter.connect(options.connectHost, config.port);
+    capabilities = await openSMTPSession(adapter, config);
+  } catch (error) {
+    await adapter.close().catch(() => undefined);
+    throw error;
+  }
   const allow8BitMime = capabilities.some((cap) => cap.toUpperCase() === "8BITMIME");
 
   let messageCount = 0;

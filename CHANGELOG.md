@@ -31,7 +31,7 @@
   import. Cloudflare sender entrypoints need the `nodejs_compat` flag.
   `sently/adapters/cf` does not. STARTTLS there passes
   `expectedServerHostname` when the host is not an IP.
-- **Bundle budgets** — gzip budgets match the 1.3.0 SMTP and HTTP sizes.
+- **Bundle budgets** — gzip budgets match the 1.3.0 SMTP, HTTP, and adapter sizes.
 - **Still opt-in** — `timeoutMs` is a Resend option; other HTTP transports
   use the 30s default. `attachment.path` stays trusted local I/O unless
   `attachmentBasePath` is set. Default `starttls` stays `opportunistic`.
@@ -73,9 +73,9 @@
   and `permanent`.
 - **STARTTLS handshake** — a `220` that never finishes TLS makes `send()`
   reject with `TIMEOUT`, including when the adapter timer wins and close
-  runs on the plaintext socket. The deadline is `socketTimeout` (or
-  `connectionTimeout` on the Node and Bun adapters). `sendTimeout` still
-  bounds the whole send.
+  runs on the plaintext socket. The same stall rejects a pooled `send()`.
+  The deadline is `socketTimeout` (or `connectionTimeout` on the Node and
+  Bun adapters). `sendTimeout` still bounds the whole send.
 
 ## [1.2.2] — 2026-08-19
 

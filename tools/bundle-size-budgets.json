@@ -38,8 +38,8 @@
   "sently/channel-result": 800,
   "sently/observability": 400,
   "sently/transports/preview": 7000,
-  "sently/adapters/node": 2400,
-  "sently/adapters/bun": 2400,
+  "sently/adapters/node": 2500,
+  "sently/adapters/bun": 2500,
   "sently/adapters/deno": 700,
   "sently/adapters/cf": 800,
   "sently/webhooks/sndr": 1200

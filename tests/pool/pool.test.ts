@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { SentlyError } from "../../src/core/errors.js";
 import { RateLimiter, SMTPPool } from "../../src/pool/pool.js";
 import type { SocketAdapter, TLSOptions } from "../../src/core/types.js";
 
@@ -209,6 +210,45 @@ describe("SMTPPool", () => {
     expect(pool.connectionCount).toBe(0);
     expect(pool.queueSize).toBe(0);
   });
+
+  test(
+    "a connection setup failure rejects every queued send",
+    async () => {
+      const pool = new SMTPPool(
+        {
+          host: "127.0.0.1",
+          port: 2525,
+          pool: true,
+          connectionTimeout: 400,
+        },
+        {
+          createAdapter: async () => {
+            throw new SentlyError("TLS handshake timed out", "TIMEOUT", { provider: "smtp" });
+          },
+        },
+      );
+      const started = Date.now();
+      const results = await Promise.all([
+        pool.send(mail).then(
+          () => "resolved",
+          (error: unknown) => error,
+        ),
+        pool.send(mail).then(
+          () => "resolved",
+          (error: unknown) => error,
+        ),
+      ]);
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(results).toEqual([
+        expect.objectContaining({ sentlyCode: "TIMEOUT" }),
+        expect.objectContaining({ sentlyCode: "TIMEOUT" }),
+      ]);
+      expect(pool.connectionCount).toBe(0);
+      expect(pool.queueSize).toBe(0);
+      await pool.close();
+    },
+    2_000,
+  );
 });
 
 describe("RateLimiter", () => {

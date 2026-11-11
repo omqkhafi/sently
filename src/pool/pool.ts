@@ -117,7 +117,14 @@ export class SMTPPool implements Transport {
 
   /** Schedules asynchronous processing of the send queue. */
   private scheduleProcess(): void {
-    this.processChain = this.processChain.then(() => this.processQueue()).catch(() => undefined);
+    this.processChain = this.processChain
+      .then(() => this.processQueue())
+      .catch((error: unknown) => {
+        const pending = this.queue.splice(0, this.queue.length);
+        for (const entry of pending) {
+          entry.reject(error);
+        }
+      });
   }
 
   /** Verifies connectivity using a temporary connection. */
@@ -191,8 +198,9 @@ export class SMTPPool implements Transport {
         if (!entry) {
           break;
         }
-        const conn = await this.spawnConnection();
+        let conn: PooledConnection | undefined;
         try {
+          conn = await this.spawnConnection();
           const result = await conn.send(entry.options);
           entry.resolve(result);
           if (!conn.usable) {
@@ -201,8 +209,10 @@ export class SMTPPool implements Transport {
           }
         } catch (err) {
           entry.reject(err);
-          await conn.close().catch(() => undefined);
-          this.removeConnection(conn);
+          if (conn) {
+            await conn.close().catch(() => undefined);
+            this.removeConnection(conn);
+          }
         }
         continue;
       }
