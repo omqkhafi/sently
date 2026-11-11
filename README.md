@@ -102,8 +102,8 @@ Compared with email-only stacks (e.g. Nodemailer) and a pile of vendor clients:
 | Failures          | Per-vendor exceptions                 | Stable `SentlyError` codes                  |
 | Reliability       | Ad-hoc per client                     | `RetryTransport` + `FallbackTransport`      |
 | Providers         | Vendor clients in app code            | Pluggable transports                        |
-| Runtimes          | Often Node only                       | Node, Bun, Deno, CF Workers                 |
-| Edge / Workers    | Fat SDKs hurt cold start              | Tree-shakeable (~6.3 KB HTTP · ~14.9 KB SMTP) |
+| Runtimes          | Often Node only                       | Node, Bun, Deno, CF Workers (`nodejs_compat` for senders) |
+| Edge / Workers    | Fat SDKs hurt cold start              | Tree-shakeable (~6.6 KB HTTP · ~17.6 KB SMTP) |
 | Module format     | Often CJS                             | ESM only                                    |
 | Dependencies      | Varies                                | 0 runtime deps                              |
 

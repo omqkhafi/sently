@@ -255,10 +255,18 @@ export async function openSMTPSession(
       adapter.discardBuffered?.();
       adapter.prepareStartTls?.();
       const servername = tlsServerName(config.host, config.tls?.servername);
-      await adapter.startTLS({
+      const upgrade = adapter.startTLS({
         ...config.tls,
         ...(servername !== undefined ? { servername } : {}),
       });
+      try {
+        await withDeadline(upgrade, session.deadlines.socketMs, "TLS handshake timed out", () => {
+          void adapter.destroy?.();
+        });
+      } catch (error) {
+        void upgrade.catch(() => undefined);
+        throw error;
+      }
       capabilities = await ehlo(session, clientName);
     } catch (error) {
       throw error instanceof SentlyError

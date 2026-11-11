@@ -57,6 +57,42 @@ describe("provider HTTP bodies", () => {
     }
   });
 
+  test("a 500 body of JSON null is a provider error", async () => {
+    const { server, url } = await listen((response) => {
+      response.writeHead(500, { "content-type": "application/json" });
+      response.end("null");
+    });
+    try {
+      const transport = new ResendTransport({ apiKey: "re_test", baseUrl: url, timeoutMs: 1_000 });
+      const error = await transport.send(message).then(
+        () => {
+          throw new Error("expected send to reject");
+        },
+        (caught: unknown) => caught,
+      );
+      expect(error).toMatchObject({ statusCode: 500 });
+      expect(error).not.toBeInstanceOf(TypeError);
+      expect((error as { sentlyCode?: string }).sentlyCode).toBeTruthy();
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  });
+
+  test("verify() does not treat an HTML 200 as a valid API key", async () => {
+    const { server, url } = await listen((response) => {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<html>ok</html>");
+    });
+    try {
+      const transport = new ResendTransport({ apiKey: "re_test", baseUrl: url, timeoutMs: 1_000 });
+      const result = await transport.verify();
+      expect(result.ok).toBe(false);
+      expect(result.message).not.toBe("API key is valid");
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  });
+
   test("an empty 200 body is a provider error", async () => {
     const { server, url } = await listen((response) => {
       response.writeHead(200, { "content-type": "application/json" });

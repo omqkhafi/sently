@@ -140,4 +140,12 @@ export class DenoAdapter implements SocketAdapter {
     this.conn = null;
     this._connected = false;
   }
+
+  /**
+   * Abort an in-flight read or handshake.
+   * SMTP deadlines call this when a timer fires.
+   */
+  async destroy(): Promise<void> {
+    await this.close();
+  }
 }

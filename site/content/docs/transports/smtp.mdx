@@ -77,7 +77,7 @@ For local capture with defaults and REST helpers, use [Mailpit](./mailpit) or [I
     `starttls: "required"` fails with `TLS_FAILED` before AUTH or MAIL. The default `opportunistic` sends in cleartext only when the server does not advertise STARTTLS, and `requireTLS` still refuses AUTH on that connection.
   </Accordion>
   <Accordion title="The send hangs after connect">
-    Greeting and reply deadlines are enforced. A silent server fails with `TIMEOUT`. Set `greetingTimeout` or `socketTimeout` to `0` only when you accept an unbounded wait.
+    Greeting, reply, and STARTTLS handshake deadlines are enforced. A silent server, or a `220` that never completes the TLS handshake, fails with `TIMEOUT`. Set `greetingTimeout` or `socketTimeout` to `0` only when you accept an unbounded wait.
   </Accordion>
   <Accordion title="Local development without a real relay">
     Use [Mailpit](./mailpit), [Inbucket](./inbucket), or [Preview](/docs/decorators/preview).

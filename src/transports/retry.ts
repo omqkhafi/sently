@@ -131,6 +131,7 @@ export class RetryTransport<TOptions = MailOptions, TResult = SendResult>
 
   /** Sends with retries according to configured backoff and retry rules. */
   async send(options: TOptions): Promise<TResult> {
+    const hooked = sendHookSlot.getStore()?.onRetry ?? this.mailerOnRetry;
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
@@ -146,7 +147,6 @@ export class RetryTransport<TOptions = MailOptions, TResult = SendResult>
         }
         const delay = computeDelay(attempt, this.backoff, this.baseDelay, this.maxDelay);
         await invokeHook(this.onRetry, attempt, err);
-        const hooked = sendHookSlot.getStore()?.onRetry ?? this.mailerOnRetry;
         await invokeHook(hooked, attempt, err);
         await this._sleep(delay);
       }

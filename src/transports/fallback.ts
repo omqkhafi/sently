@@ -187,6 +187,7 @@ export class FallbackTransport<TOptions = MailOptions, TResult = SendResult>
 
   /** Sends through transports in order until one succeeds. */
   async send(message: TOptions): Promise<FallbackAugmentedResult<TResult>> {
+    const hooked = sendHookSlot.getStore()?.onFallback ?? this.mailerOnFallback;
     const attempts: FallbackAttempt[] = [];
     const skipped: FallbackAttempt[] = [];
 
@@ -228,7 +229,6 @@ export class FallbackTransport<TOptions = MailOptions, TResult = SendResult>
           this.transports[nextIndex] as DecoratedTransport<TOptions, TResult>,
         );
         this.onFallback?.(i, err);
-        const hooked = sendHookSlot.getStore()?.onFallback ?? this.mailerOnFallback;
         if (hooked !== undefined) {
           await hooked(provider, nextProvider, err);
         }

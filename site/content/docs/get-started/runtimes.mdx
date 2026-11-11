@@ -7,6 +7,10 @@ source: "README.md"
 
 HTTP transports use `fetch` and suit the supported runtimes. SMTP requires an adapter when automatic detection is unavailable.
 
+<Callout title="Workers">
+  `createMailer`, SMS, WhatsApp, push, Retry, and Fallback load `node:async_hooks` on the first send so concurrent hooks stay isolated. Enable the `nodejs_compat` compatibility flag for those entrypoints. `sently/adapters/cf` does not import it.
+</Callout>
+
 | Runtime | SMTP adapter subpath |
 | --- | --- |
 | Node.js | `sently/adapters/node` |

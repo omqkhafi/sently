@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-11
+
 ### ✨ Added
 
 - **SMTP deadlines and STARTTLS policy** — `greetingTimeout`, `socketTimeout`,
@@ -25,6 +27,15 @@
 - **Retry** — `maxAttempts` must be an integer ≥ 1. Backoff is capped by
   `maxDelay` (default 60s). `BAD_REQUEST`, `INVALID_CONFIG`, and
   `SMTP_AUTH_FAILED` are not retried.
+- **Workers hooks** — `node:async_hooks` loads on the first send, not at
+  import. Cloudflare sender entrypoints need the `nodejs_compat` flag.
+  `sently/adapters/cf` does not. STARTTLS there passes
+  `expectedServerHostname` when the host is not an IP.
+- **Bundle budgets** — gzip budgets match the 1.3.0 SMTP and HTTP sizes.
+- **Still opt-in** — `timeoutMs` is a Resend option; other HTTP transports
+  use the 30s default. `attachment.path` stays trusted local I/O unless
+  `attachmentBasePath` is set. Default `starttls` stays `opportunistic`.
+  SendGrid, Postmark, Brevo, SES, and Unifonic webhooks stay parse-only.
 
 ### 🐛 Fixed
 
@@ -45,6 +56,9 @@
   filenames that are not quoted-string-safe use RFC 2231.
 - **Fresh `bun test`** — the API surface tests load source when `dist/` has
   not been built yet.
+- **HTTP `null` bodies** — a non-OK JSON `null` body throws `SentlyError`
+  with the status code. Resend `verify()` no longer treats an HTML 200 as a
+  valid API key.
 
 ### 🔒 Security
 
@@ -57,6 +71,9 @@
 - **Error text** — `JSON.stringify` on `SentlyError` and `SMTPError` omits
   the server reply. Safe fields are `sentlyCode`, `command`, `statusCode`,
   and `permanent`.
+- **STARTTLS handshake** — a `220` that never finishes TLS fails with
+  `TIMEOUT`. The deadline is `socketTimeout` (or `connectionTimeout` on the
+  Node and Bun adapters). `sendTimeout` still bounds the whole send.
 
 ## [1.2.2] — 2026-08-19
 

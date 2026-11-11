@@ -44,10 +44,10 @@ export async function providerFetch(
 /**
  * Read a provider response body without throwing `SyntaxError` or `TypeError`.
  *
- * A non-OK response with JSON is returned so the caller can throw its provider
- * error. A non-OK response that is not JSON throws {@link SentlyError} with
- * `statusCode`. An OK response with an empty or `null` body throws
- * `PROVIDER_ERROR`.
+ * A non-OK response with a JSON object is returned so the caller can throw its
+ * provider error. A non-OK response that is empty, JSON `null`, or not JSON
+ * throws {@link SentlyError} with `statusCode`. An OK response with an empty
+ * or `null` body throws `PROVIDER_ERROR`.
  *
  * @param response - Fetch response
  * @param provider - Provider id used on thrown errors
@@ -57,15 +57,26 @@ export async function readJsonBody<T>(response: Response, provider = "http"): Pr
   const trimmed = text.trim();
 
   if (!response.ok) {
-    if (trimmed.length === 0) {
+    if (trimmed.length === 0 || trimmed === "null") {
       throw new SentlyError(`${provider} request failed`, httpStatusToSentlyCode(response.status), {
         statusCode: response.status,
         provider,
       });
     }
     try {
-      return JSON.parse(trimmed) as T;
+      const parsed = JSON.parse(trimmed) as T;
+      if (parsed === null) {
+        throw new SentlyError(
+          `${provider} request failed`,
+          httpStatusToSentlyCode(response.status),
+          { statusCode: response.status, provider },
+        );
+      }
+      return parsed;
     } catch (cause) {
+      if (cause instanceof SentlyError) {
+        throw cause;
+      }
       throw new SentlyError(`${provider} request failed`, httpStatusToSentlyCode(response.status), {
         statusCode: response.status,
         provider,

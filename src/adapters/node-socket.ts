@@ -100,6 +100,16 @@ export class NodeCompatSocket implements SocketAdapter {
     this.prepareStartTls();
 
     await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const fail = (error: unknown): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        tlsSocket.setTimeout(0);
+        tlsSocket.destroy();
+        reject(error instanceof SentlyError ? error : wrapSocketError(error));
+      };
       const tlsSocket = tls.connect({
         socket: plain,
         ...(servername !== undefined ? { servername } : {}),
@@ -107,7 +117,17 @@ export class NodeCompatSocket implements SocketAdapter {
         ...(merged.minVersion !== undefined ? { minVersion: merged.minVersion } : {}),
       });
 
+      if (this.connectionTimeout > 0) {
+        tlsSocket.setTimeout(this.connectionTimeout);
+        tlsSocket.once("timeout", () => {
+          fail(new SentlyError("TLS handshake timed out", "TIMEOUT", { provider: "smtp" }));
+        });
+      }
       tlsSocket.once("secureConnect", () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         tlsSocket.setTimeout(0);
         this.socket = tlsSocket;
         this._secure = true;
@@ -115,7 +135,7 @@ export class NodeCompatSocket implements SocketAdapter {
         resolve();
       });
       tlsSocket.once("error", (error) => {
-        reject(wrapSocketError(error));
+        fail(error);
       });
     });
   }

@@ -247,8 +247,8 @@ export class ResendTransport implements Transport {
         },
       });
 
+      const payload = await readJsonBody<{ message?: string }>(response, "resend");
       if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { message?: string };
         return {
           ok: false,
           provider: "resend",

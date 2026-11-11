@@ -21,7 +21,7 @@ Not every exported transport is part of the **1.x production promise**.
 | SMS | Twilio SMS, Unifonic | Webhooks for Twilio and Unifonic |
 | WhatsApp | WhatsApp Cloud | Signature verify + delivery parse |
 | Push | Web Push, FCM | Option union: `subscription` (Web Push) or `token` (FCM) |
-| Runtimes | Node ≥18, Bun, Deno, Cloudflare Workers | Adapters and smoke scripts |
+| Runtimes | Node ≥18, Bun, Deno, Cloudflare Workers | Adapters and smoke scripts. Sender entrypoints need `nodejs_compat` on Workers. |
 
 FCM uses the current Firebase HTTP API (service-account JWT, no Google SDK). That is baseline push support, not a special feature tier.
 

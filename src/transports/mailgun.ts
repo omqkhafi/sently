@@ -148,8 +148,8 @@ export class MailgunTransport implements Transport {
         },
       });
 
+      const payload = await readJsonBody<{ message?: string }>(response, "mailgun");
       if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { message?: string };
         return {
           ok: false,
           provider: "mailgun",

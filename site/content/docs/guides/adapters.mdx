@@ -21,6 +21,16 @@ import { NodeAdapter } from "sently/adapters/node";
 const mailer = await createSMTPMailer({ host: "smtp.example.com", adapter: new NodeAdapter() });
 ```
 
-<Accordions><Accordion title="Why does SMTP fail on an edge runtime?">Use an HTTP transport, or provide the runtime's supported SMTP adapter.</Accordion></Accordions>
+<Accordions>
+  <Accordion title="Why does SMTP fail on an edge runtime?">
+    Use an HTTP transport, or provide the runtime's supported SMTP adapter.
+  </Accordion>
+  <Accordion title="STARTTLS server name on Workers">
+    `CloudflareAdapter` passes `expectedServerHostname` from the relay hostname. IP literals omit that name. Deno passes the same hostname to `startTls`.
+  </Accordion>
+  <Accordion title="Handshake deadlines on Deno and Workers">
+    SMTP calls `destroy()` when the handshake timer fires. Node and Bun abort the socket. Deno and Workers `destroy()` closes the connection; the runtime has to unblock `startTls` for the send to settle.
+  </Accordion>
+</Accordions>
 
 <Cards><Card title="SMTP transport" href="/docs/transports/smtp" /></Cards>

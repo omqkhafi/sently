@@ -14,6 +14,7 @@
  * });
  * ```
  */
+import { tlsServerName } from "../core/tls-name.js";
 import type { SocketAdapter, TLSOptions } from "../core/types.js";
 
 interface CFSocket {
@@ -21,7 +22,7 @@ interface CFSocket {
   readonly writable: WritableStream<Uint8Array>;
   readonly closed: Promise<void>;
   close(): Promise<void>;
-  startTls(): CFSocket;
+  startTls(options?: { expectedServerHostname?: string }): CFSocket;
 }
 
 type CFConnect = (
@@ -60,6 +61,8 @@ export class CloudflareAdapter implements SocketAdapter {
   private readonly directTls: boolean;
   /** Whether STARTTLS upgrade is enabled after plain connect. */
   private readonly starttls: boolean;
+  /** Remote host from the latest connect, used as the default SNI name. */
+  private remoteHost = "";
 
   /** Creates a Cloudflare Workers socket adapter. */
   constructor(options: CloudflareAdapterOptions = {}) {
@@ -80,6 +83,7 @@ export class CloudflareAdapter implements SocketAdapter {
 
   /** Opens a TCP or TLS connection to the given host and port. */
   async connect(host: string, port: number): Promise<void> {
+    this.remoteHost = host;
     const { connect } = (await import("cloudflare:sockets")) as { connect: CFConnect };
 
     const secureTransport = this.directTls ? "on" : this.starttls ? "starttls" : "off";
@@ -90,13 +94,16 @@ export class CloudflareAdapter implements SocketAdapter {
   }
 
   /** Upgrades a plain connection to TLS via STARTTLS. */
-  async startTLS(_options?: TLSOptions): Promise<void> {
+  async startTLS(options?: TLSOptions): Promise<void> {
     if (!this.socket || this._secure) {
       throw new Error("Cannot STARTTLS: no plain socket available");
     }
 
     await this.writer?.close();
-    this.socket = this.socket.startTls();
+    const servername = tlsServerName(this.remoteHost, options?.servername);
+    this.socket = servername
+      ? this.socket.startTls({ expectedServerHostname: servername })
+      : this.socket.startTls();
     this.writer = this.socket.writable.getWriter();
     this._secure = true;
   }
@@ -129,6 +136,14 @@ export class CloudflareAdapter implements SocketAdapter {
     } finally {
       reader.releaseLock();
     }
+  }
+
+  /**
+   * Abort an in-flight read or handshake.
+   * SMTP deadlines call this when a timer fires.
+   */
+  async destroy(): Promise<void> {
+    await this.close();
   }
 
   /** Closes the socket connection. */
