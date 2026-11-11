@@ -71,9 +71,11 @@
 - **Error text** — `JSON.stringify` on `SentlyError` and `SMTPError` omits
   the server reply. Safe fields are `sentlyCode`, `command`, `statusCode`,
   and `permanent`.
-- **STARTTLS handshake** — a `220` that never finishes TLS fails with
-  `TIMEOUT`. The deadline is `socketTimeout` (or `connectionTimeout` on the
-  Node and Bun adapters). `sendTimeout` still bounds the whole send.
+- **STARTTLS handshake** — a `220` that never finishes TLS makes `send()`
+  reject with `TIMEOUT`, including when the adapter timer wins and close
+  runs on the plaintext socket. The deadline is `socketTimeout` (or
+  `connectionTimeout` on the Node and Bun adapters). `sendTimeout` still
+  bounds the whole send.
 
 ## [1.2.2] — 2026-08-19
 

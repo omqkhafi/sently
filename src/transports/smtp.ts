@@ -628,11 +628,15 @@ async function withDeadline<T>(
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
       reject(new SentlyError(message, "TIMEOUT", { provider: "smtp" }));
-      void Promise.resolve(onTimeout()).catch(() => undefined);
     }, timeoutMs);
   });
   try {
     return await Promise.race([promise, timeout]);
+  } catch (error) {
+    if (error instanceof SentlyError && error.sentlyCode === "TIMEOUT") {
+      await Promise.resolve(onTimeout()).catch(() => undefined);
+    }
+    throw error;
   } finally {
     if (timer !== undefined) {
       clearTimeout(timer);

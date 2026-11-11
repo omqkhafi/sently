@@ -8,6 +8,34 @@ import { SentlyError } from "../core/errors.js";
 import { tlsServerName } from "../core/tls-name.js";
 import type { SocketAdapter, TLSOptions } from "../core/types.js";
 
+/**
+ * Finish a socket without waiting only on `end(callback)`.
+ * After a failed STARTTLS that callback often never runs.
+ */
+function finishSocket(socket: net.Socket): Promise<void> {
+  if (socket.destroyed) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve();
+    };
+    socket.once("close", done);
+    try {
+      socket.end();
+    } catch {
+      // Already unusable. destroy() still releases the handle.
+    }
+    socket.destroy();
+    done();
+  });
+}
+
 function warnRejectUnauthorizedDisabled(options: TLSOptions): void {
   if (options.rejectUnauthorized === false) {
     console.warn(
@@ -46,6 +74,12 @@ export class NodeCompatSocket implements SocketAdapter {
   private readonly tlsOptions: TLSOptions;
   /** Remote host from the latest `connect`, used as the default SNI name. */
   private remoteHost = "";
+  /**
+   * STARTTLS wrapper.
+   * It does not replace {@link socket} until `secureConnect`, so a failed
+   * handshake still has to tear both sockets down.
+   */
+  private tlsSocket: tls.TLSSocket | null = null;
   /** Bytes received while no `read()` consumer is waiting. */
   private queue: Uint8Array[] = [];
   /** Waiters blocked inside `read()`. */
@@ -99,6 +133,14 @@ export class NodeCompatSocket implements SocketAdapter {
     const servername = tlsServerName(this.remoteHost, merged.servername);
     this.prepareStartTls();
 
+    const tlsSocket = tls.connect({
+      socket: plain,
+      ...(servername !== undefined ? { servername } : {}),
+      rejectUnauthorized: merged.rejectUnauthorized ?? true,
+      ...(merged.minVersion !== undefined ? { minVersion: merged.minVersion } : {}),
+    });
+    this.tlsSocket = tlsSocket;
+
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       const fail = (error: unknown): void => {
@@ -107,15 +149,14 @@ export class NodeCompatSocket implements SocketAdapter {
         }
         settled = true;
         tlsSocket.setTimeout(0);
-        tlsSocket.destroy();
-        reject(error instanceof SentlyError ? error : wrapSocketError(error));
+        const wrapped = error instanceof SentlyError ? error : wrapSocketError(error);
+        // Destroy the plaintext socket too. Destroying only the TLS wrapper
+        // leaves close() waiting on an end() callback that never runs.
+        void this.destroy().then(
+          () => reject(wrapped),
+          () => reject(wrapped),
+        );
       };
-      const tlsSocket = tls.connect({
-        socket: plain,
-        ...(servername !== undefined ? { servername } : {}),
-        rejectUnauthorized: merged.rejectUnauthorized ?? true,
-        ...(merged.minVersion !== undefined ? { minVersion: merged.minVersion } : {}),
-      });
 
       if (this.connectionTimeout > 0) {
         tlsSocket.setTimeout(this.connectionTimeout);
@@ -129,6 +170,7 @@ export class NodeCompatSocket implements SocketAdapter {
         }
         settled = true;
         tlsSocket.setTimeout(0);
+        this.tlsSocket = null;
         this.socket = tlsSocket;
         this._secure = true;
         this.attachIo(tlsSocket);
@@ -207,33 +249,42 @@ export class NodeCompatSocket implements SocketAdapter {
 
   /** Closes the socket connection. */
   async close(): Promise<void> {
-    const socket = this.socket;
-    this.detachIo(socket);
-    this.socket = null;
-    this._connected = false;
-    this._secure = this.implicitTls;
-    this.readClosed = true;
+    const sockets = this.takeSockets();
     this.flushReaders(null);
-    if (!socket) {
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      socket.end(() => resolve());
-      socket.destroy();
-    });
+    await Promise.all(sockets.map((socket) => finishSocket(socket)));
   }
 
   /** Destroy the socket so an in-flight read or write settles. */
   async destroy(): Promise<void> {
-    const socket = this.socket;
-    this.detachIo(socket);
+    const sockets = this.takeSockets();
+    this.readError = new SentlyError("SMTP response timed out", "TIMEOUT", { provider: "smtp" });
+    this.flushReaders(null);
+    for (const socket of sockets) {
+      if (!socket.destroyed) {
+        socket.destroy();
+      }
+    }
+  }
+
+  /**
+   * Detach and forget the plaintext socket and any in-flight TLS wrapper.
+   * A later {@link close} is then a no-op.
+   */
+  private takeSockets(): Array<net.Socket | tls.TLSSocket> {
+    const sockets: Array<net.Socket | tls.TLSSocket> = [];
+    if (this.socket) {
+      sockets.push(this.socket);
+    }
+    if (this.tlsSocket && this.tlsSocket !== this.socket) {
+      sockets.push(this.tlsSocket);
+    }
+    this.detachIo(this.socket);
     this.socket = null;
+    this.tlsSocket = null;
     this._connected = false;
     this._secure = this.implicitTls;
     this.readClosed = true;
-    this.readError = new SentlyError("SMTP response timed out", "TIMEOUT", { provider: "smtp" });
-    this.flushReaders(null);
-    socket?.destroy();
+    return sockets;
   }
 
   /** Opens a plain TCP connection to the SMTP server. */

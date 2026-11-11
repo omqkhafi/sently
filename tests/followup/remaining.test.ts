@@ -7,7 +7,7 @@ import { join } from "node:path";
 import tls from "node:tls";
 import { SentlyError } from "../../src/core/errors.js";
 import { buildMIME } from "../../src/core/mime.js";
-import type { MailOptions, SendResult, Transport } from "../../src/core/types.js";
+import type { MailOptions, SendResult, SocketAdapter, Transport } from "../../src/core/types.js";
 import { createMailer } from "../../src/mailer.js";
 import { IdempotencyTransport, MemoryIdempotencyStore } from "../../src/idempotency.js";
 import { createSMTPMailer } from "../../src/smtp-mailer.js";
@@ -77,6 +77,88 @@ describe("STARTTLS handshake deadline", () => {
       await server.close();
     }
   });
+
+  test(
+    "send() settles when the adapter handshake timeout wins",
+    async () => {
+      const server = await listen((socket) => {
+        socket.write("220 ready\r\n");
+        socket.on("data", (chunk) => {
+          const text = chunk.toString("utf8");
+          if (text.startsWith("EHLO")) {
+            socket.write("250-localhost\r\n250 STARTTLS\r\n");
+          } else if (text.startsWith("STARTTLS")) {
+            socket.write("220 ready\r\n");
+          }
+        });
+      });
+      try {
+        const mailer = await createSMTPMailer({
+          host: "127.0.0.1",
+          port: server.port,
+          secure: false,
+          starttls: "required",
+          connectionTimeout: 300,
+          socketTimeout: 5_000,
+        });
+        const started = Date.now();
+        await expect(mailer.send(message)).rejects.toMatchObject({ sentlyCode: "TIMEOUT" });
+        expect(Date.now() - started).toBeLessThan(2_000);
+      } finally {
+        await server.close();
+      }
+    },
+    2_000,
+  );
+
+  test(
+    "send() settles when startTLS rejects TIMEOUT without destroying the socket",
+    async () => {
+      let destroyed = false;
+      const encoder = new TextEncoder();
+      const script = [
+        encoder.encode("220 ready\r\n"),
+        encoder.encode("250-localhost\r\n250 STARTTLS\r\n"),
+        encoder.encode("220 ready\r\n"),
+      ];
+      const adapter: SocketAdapter = {
+        secure: false,
+        connected: true,
+        connect: async () => undefined,
+        write: async () => undefined,
+        async *read() {
+          for (const chunk of script) {
+            yield chunk;
+          }
+          await new Promise<void>(() => undefined);
+        },
+        startTLS: async () => {
+          throw new SentlyError("TLS handshake timed out", "TIMEOUT", { provider: "smtp" });
+        },
+        destroy: async () => {
+          destroyed = true;
+        },
+        close: async () => {
+          if (!destroyed) {
+            await new Promise<void>(() => undefined);
+          }
+        },
+      };
+      const mailer = await createSMTPMailer({
+        host: "127.0.0.1",
+        port: 587,
+        secure: false,
+        starttls: "required",
+        socketTimeout: 5_000,
+        adapter,
+      });
+      const started = Date.now();
+      await expect(mailer.send(message)).rejects.toMatchObject({ sentlyCode: "TIMEOUT" });
+      expect(destroyed).toBe(true);
+      expect(Date.now() - started).toBeLessThan(2_000);
+    },
+    2_000,
+  );
 
   test("sendTimeout still bounds a stalled handshake", async () => {
     const server = await listen((socket) => {
